@@ -272,7 +272,7 @@ class CategorySubservicesSection extends ConsumerWidget {
                 crossAxisCount: 2,
                 crossAxisSpacing: 12,
                 mainAxisSpacing: 12,
-                childAspectRatio: 2.8,
+                childAspectRatio: 1.9,
               ),
               itemCount: subservices.length,
               itemBuilder: (context, index) {
@@ -301,7 +301,7 @@ class CategorySubservicesSection extends ConsumerWidget {
                         Expanded(
                           child: Text(
                             name,
-                            maxLines: 1,
+                            maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
                               fontSize: 14,

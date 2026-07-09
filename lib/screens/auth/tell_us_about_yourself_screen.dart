@@ -15,16 +15,18 @@ class _TellUsAboutYourselfScreenState extends ConsumerState<TellUsAboutYourselfS
   final _nameController = TextEditingController();
   final _dobController = TextEditingController();
   final _emailController = TextEditingController();
+  final _languageController = TextEditingController();
   
   String? _selectedGender;
   String _selectedExperience = '0-1 years';
-  List<String> _selectedLanguages = ['English', 'Hindi', 'Kannada'];
+  List<String> _selectedLanguages = [];
 
   @override
   void dispose() {
     _nameController.dispose();
     _dobController.dispose();
     _emailController.dispose();
+    _languageController.dispose();
     super.dispose();
   }
 
@@ -55,36 +57,17 @@ class _TellUsAboutYourselfScreenState extends ConsumerState<TellUsAboutYourselfS
   }
 
   void _addLanguage() {
-    final List<String> availableLanguages = [
-      'Tamil', 'Telugu', 'Bengali', 'Marathi', 'Gujarati', 'Punjabi', 'Malayalam'
-    ];
-    final unselected = availableLanguages.where((l) => !_selectedLanguages.contains(l)).toList();
-    if (unselected.isEmpty) return;
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Add Language'),
-        content: SizedBox(
-          width: double.maxFinite,
-          child: ListView.builder(
-            shrinkWrap: true,
-            itemCount: unselected.length,
-            itemBuilder: (context, index) {
-              return ListTile(
-                title: Text(unselected[index]),
-                onTap: () {
-                  setState(() {
-                    _selectedLanguages.add(unselected[index]);
-                  });
-                  Navigator.pop(context);
-                },
-              );
-            },
-          ),
-        ),
-      ),
-    );
+    final lang = _languageController.text.trim();
+    if (lang.isNotEmpty) {
+      // Capitalize first letter for neat display
+      final capitalized = lang[0].toUpperCase() + lang.substring(1);
+      if (!_selectedLanguages.contains(capitalized)) {
+        setState(() {
+          _selectedLanguages.add(capitalized);
+          _languageController.clear();
+        });
+      }
+    }
   }
 
   @override
@@ -220,19 +203,29 @@ class _TellUsAboutYourselfScreenState extends ConsumerState<TellUsAboutYourselfS
 
                       // Languages
                       _buildLabel('Languages'),
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFF5F6FA),
-                          borderRadius: BorderRadius.circular(12),
+                      TextFormField(
+                        controller: _languageController,
+                        decoration: _buildInputDecoration('Type language (e.g. English, Tamil)').copyWith(
+                          suffixIcon: IconButton(
+                            icon: const Icon(Icons.add_circle, color: Color(0xFF16155D), size: 28),
+                            onPressed: _addLanguage,
+                          ),
                         ),
-                        child: Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          crossAxisAlignment: WrapCrossAlignment.center,
-                          children: [
-                            ..._selectedLanguages.map((lang) => Chip(
+                        onFieldSubmitted: (_) => _addLanguage(),
+                      ),
+                      if (_selectedLanguages.isNotEmpty) ...[
+                        const SizedBox(height: 12),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF5F6FA),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: _selectedLanguages.map((lang) => Chip(
                               label: Text(
                                 lang,
                                 style: const TextStyle(fontSize: 14, color: Colors.black87),
@@ -249,24 +242,10 @@ class _TellUsAboutYourselfScreenState extends ConsumerState<TellUsAboutYourselfS
                                 side: BorderSide.none,
                               ),
                               padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                            )),
-                            GestureDetector(
-                              onTap: _addLanguage,
-                              child: const Padding(
-                                padding: EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
-                                child: Text(
-                                  'Add more...',
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    color: Colors.black54,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                              ),
-                            )
-                          ],
+                            )).toList(),
+                          ),
                         ),
-                      ),
+                      ],
                       const SizedBox(height: 40),
                     ],
                   ),

@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:partner_app/providers/auth_provider.dart';
+import 'package:partner_app/screens/onboarding/onboarding_screen.dart';
 import 'package:partner_app/screens/finance/loans_screen.dart';
 import 'package:partner_app/screens/profile/profile_identity_verification_screen.dart';
 import 'package:partner_app/screens/jobs/calendar_screen.dart';
@@ -7,7 +10,7 @@ import 'package:partner_app/screens/finance/credits_screen.dart';
 import 'package:partner_app/screens/profile/performance_screen.dart';
 import 'package:partner_app/screens/finance/insurance_screen.dart';
 
-class ProfileScreen extends StatelessWidget {
+class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
 
   Widget _buildTopBar() {
@@ -348,7 +351,7 @@ class ProfileScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildAccountGroup(BuildContext context) {
+  Widget _buildAccountGroup(BuildContext context, WidgetRef ref) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 8.0),
       child: Container(
@@ -381,9 +384,17 @@ class ProfileScreen extends StatelessWidget {
                 icon: Icons.logout_outlined,
                 title: 'Logout',
                 isDestructive: true,
-                onTap: () {
-                  // Returns the user to the onboarding screen (root first screen)
-                  Navigator.popUntil(context, (route) => route.isFirst);
+                onTap: () async {
+                  await ref.read(authProvider.notifier).logout();
+                  if (context.mounted) {
+                    Navigator.pushAndRemoveUntil(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const OnboardingScreen(),
+                      ),
+                      (route) => false,
+                    );
+                  }
                 },
               ),
             ],
@@ -394,7 +405,7 @@ class ProfileScreen extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -408,7 +419,7 @@ class ProfileScreen extends StatelessWidget {
                 _buildSectionHeader('MY ACTIVITY'),
                 _buildActivityGroup(context),
                 _buildSectionHeader('ACCOUNT'),
-                _buildAccountGroup(context),
+                _buildAccountGroup(context, ref),
                 const SizedBox(height: 32),
               ],
             ),

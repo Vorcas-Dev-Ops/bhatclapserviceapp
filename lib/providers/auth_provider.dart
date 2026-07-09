@@ -98,7 +98,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
           'identifier': phone,
           'role': 'provider',
           'useEmail': false,
-          'mode': 'register',
+          'mode': 'login',
         },
       );
       if (response.statusCode == 200) {

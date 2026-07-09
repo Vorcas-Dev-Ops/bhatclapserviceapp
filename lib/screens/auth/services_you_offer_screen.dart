@@ -141,13 +141,20 @@ class _ServicesYouOfferScreenState extends ConsumerState<ServicesYouOfferScreen>
                         desc.toLowerCase().contains(_searchQuery.toLowerCase());
                   }).toList();
 
+                  // Sort descending alphabetically by category name
+                  filteredCategories.sort((a, b) {
+                    final nameA = (a['category_name'] as String? ?? '').toLowerCase();
+                    final nameB = (b['category_name'] as String? ?? '').toLowerCase();
+                    return nameB.compareTo(nameA);
+                  });
+
                   return GridView.builder(
                     padding: const EdgeInsets.only(left: 24.0, right: 24.0, bottom: 24.0),
                     gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                       crossAxisCount: 2,
                       crossAxisSpacing: 12,
                       mainAxisSpacing: 12,
-                      childAspectRatio: 0.88,
+                      childAspectRatio: 1.0,
                     ),
                     itemCount: filteredCategories.length,
                     itemBuilder: (context, index) {
@@ -177,31 +184,44 @@ class _ServicesYouOfferScreenState extends ConsumerState<ServicesYouOfferScreen>
                                   color: isSelected ? const Color(0xFFEFF1FE) : const Color(0xFFF5F6FA),
                                   borderRadius: BorderRadius.circular(14),
                                 ),
-                                child: const Icon(
-                                  Icons.handyman_outlined,
-                                  color: Color(0xFF16155D),
-                                  size: 22,
-                                ),
+                                alignment: Alignment.center,
+                                child: category['icon'] != null && category['icon'].toString().isNotEmpty
+                                    ? Image.network(
+                                        category['icon'].toString(),
+                                        width: 24,
+                                        height: 24,
+                                        fit: BoxFit.contain,
+                                        errorBuilder: (context, error, stackTrace) => const Icon(
+                                          Icons.handyman_outlined,
+                                          color: Color(0xFF16155D),
+                                          size: 22,
+                                        ),
+                                      )
+                                    : const Icon(
+                                        Icons.handyman_outlined,
+                                        color: Color(0xFF16155D),
+                                        size: 22,
+                                      ),
                               ),
-                              const Spacer(),
+                              const SizedBox(height: 14),
                               Text(
                                 category['category_name'] ?? '',
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(
-                                  fontSize: 14,
+                                  fontSize: 16,
                                   fontWeight: FontWeight.bold,
                                   color: Color(0xFF16155D),
                                 ),
                               ),
-                              const SizedBox(height: 2),
+                              const SizedBox(height: 4),
                               Text(
                                 category['description'] ?? '',
                                 maxLines: 2,
                                 overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(
-                                  fontSize: 11,
-                                  color: Colors.black45,
+                                  fontSize: 12,
+                                  color: Colors.black54,
                                   height: 1.3,
                                 ),
                               ),

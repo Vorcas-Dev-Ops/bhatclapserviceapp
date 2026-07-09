@@ -1,6 +1,11 @@
 import 'dart:ui';
+import 'dart:io';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:cunning_document_scanner/cunning_document_scanner.dart';
 import 'package:partner_app/providers/provider_profile_provider.dart';
 import 'package:partner_app/screens/auth/bank_details_screen.dart';
 
@@ -12,6 +17,146 @@ class IdentityVerificationScreen extends ConsumerStatefulWidget {
 }
 
 class _IdentityVerificationScreenState extends ConsumerState<IdentityVerificationScreen> {
+  String? _selfiePath;
+  String? _aadhaarFrontPath;
+  String? _aadhaarBackPath;
+  String? _panFrontPath;
+  String? _panBackPath;
+
+  Future<void> _takeSelfie() async {
+    final status = await Permission.camera.request();
+    if (status.isGranted) {
+      final ImagePicker picker = ImagePicker();
+      final XFile? photo = await picker.pickImage(
+        source: ImageSource.camera,
+        preferredCameraDevice: CameraDevice.front,
+      );
+      if (photo != null) {
+        setState(() {
+          _selfiePath = photo.path;
+        });
+      }
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Camera permission is required to take a selfie.')),
+        );
+      }
+    }
+  }
+
+  Future<void> _scanAadhaarFront() async {
+    final status = await Permission.camera.request();
+    if (status.isGranted) {
+      try {
+        List<String>? pictures = await CunningDocumentScanner.getPictures(
+          androidScannerMode: AndroidScannerMode.base,
+        );
+        if (pictures != null && pictures.isNotEmpty) {
+          setState(() {
+            _aadhaarFrontPath = pictures.first;
+          });
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Scanner error: $e')),
+          );
+        }
+      }
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Camera permission is required to scan documents.')),
+        );
+      }
+    }
+  }
+
+  Future<void> _scanAadhaarBack() async {
+    final status = await Permission.camera.request();
+    if (status.isGranted) {
+      try {
+        List<String>? pictures = await CunningDocumentScanner.getPictures(
+          androidScannerMode: AndroidScannerMode.base,
+        );
+        if (pictures != null && pictures.isNotEmpty) {
+          setState(() {
+            _aadhaarBackPath = pictures.first;
+          });
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Scanner error: $e')),
+          );
+        }
+      }
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Camera permission is required to scan documents.')),
+        );
+      }
+    }
+  }
+
+  Future<void> _scanPanFront() async {
+    final status = await Permission.camera.request();
+    if (status.isGranted) {
+      try {
+        List<String>? pictures = await CunningDocumentScanner.getPictures(
+          androidScannerMode: AndroidScannerMode.base,
+        );
+        if (pictures != null && pictures.isNotEmpty) {
+          setState(() {
+            _panFrontPath = pictures.first;
+          });
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Scanner error: $e')),
+          );
+        }
+      }
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Camera permission is required to scan documents.')),
+        );
+      }
+    }
+  }
+
+  Future<void> _scanPanBack() async {
+    final status = await Permission.camera.request();
+    if (status.isGranted) {
+      try {
+        List<String>? pictures = await CunningDocumentScanner.getPictures(
+          androidScannerMode: AndroidScannerMode.base,
+        );
+        if (pictures != null && pictures.isNotEmpty) {
+          setState(() {
+            _panBackPath = pictures.first;
+          });
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Scanner error: $e')),
+          );
+        }
+      }
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Camera permission is required to scan documents.')),
+        );
+      }
+    }
+  }
+
   Widget _buildDashedContainer({required double height, required Widget child}) {
     return CustomPaint(
       painter: DashedRectPainter(
@@ -32,18 +177,46 @@ class _IdentityVerificationScreenState extends ConsumerState<IdentityVerificatio
     );
   }
 
-  Widget _buildCameraIcon() {
-    return Container(
-      width: 70,
-      height: 70,
-      decoration: BoxDecoration(
-        color: const Color(0xFFF5F6FA),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: const Icon(
-        Icons.add_a_photo_outlined,
-        color: Color(0xFF16155D),
-        size: 26,
+  Widget _buildCardSideUpload({
+    required String title,
+    required String? imagePath,
+    required VoidCallback onTap,
+  }) {
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: _buildDashedContainer(
+          height: 110,
+          child: imagePath != null
+              ? ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: Image.file(
+                    File(imagePath),
+                    fit: BoxFit.cover,
+                    width: double.infinity,
+                    height: 110,
+                  ),
+                )
+              : Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(
+                      Icons.camera_alt_outlined,
+                      color: Color(0xFF16155D),
+                      size: 26,
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: Colors.black45,
+                      ),
+                    ),
+                  ],
+                ),
+        ),
       ),
     );
   }
@@ -69,26 +242,39 @@ class _IdentityVerificationScreenState extends ConsumerState<IdentityVerificatio
           ),
         ),
         const SizedBox(height: 12),
-        _buildDashedContainer(
-          height: 100,
-          child: const Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                Icons.cloud_upload_outlined,
-                color: Color(0xFF16155D),
-                size: 28,
-              ),
-              SizedBox(height: 6),
-              Text(
-                'Upload or take a photo',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w500,
-                  color: Colors.black38,
-                ),
-              ),
-            ],
+        GestureDetector(
+          onTap: _takeSelfie,
+          child: _buildDashedContainer(
+            height: 100,
+            child: _selfiePath != null
+                ? ClipRRect(
+                    borderRadius: BorderRadius.circular(16),
+                    child: Image.file(
+                      File(_selfiePath!),
+                      fit: BoxFit.cover,
+                      width: double.infinity,
+                      height: 100,
+                    ),
+                  )
+                : const Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.cloud_upload_outlined,
+                        color: Color(0xFF16155D),
+                        size: 28,
+                      ),
+                      SizedBox(height: 6),
+                      Text(
+                        'Upload or take a photo',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                          color: Colors.black38,
+                        ),
+                      ),
+                    ],
+                  ),
           ),
         ),
       ],
@@ -109,81 +295,27 @@ class _IdentityVerificationScreenState extends ConsumerState<IdentityVerificatio
         ),
         const SizedBox(height: 4),
         const Text(
-          'Upload a clear photo of your Aadhaar Card',
+          'Upload front and back photos of your Aadhaar Card',
           style: TextStyle(
             fontSize: 12,
             color: Colors.black45,
           ),
         ),
         const SizedBox(height: 12),
-        _buildDashedContainer(
-          height: 110,
-          child: Padding(
-            padding: const EdgeInsets.all(12.0),
-            child: Row(
-              children: [
-                // Mock Aadhaar Card
-                Expanded(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFFCFCFD),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: const Color(0xFFE5E7EB)),
-                    ),
-                    child: Row(
-                      children: [
-                        // Profile Pic Mock
-                        Container(
-                          width: 40,
-                          height: 50,
-                          color: const Color(0xFFE5E7EB),
-                          child: const Icon(Icons.person, size: 24, color: Colors.black26),
-                        ),
-                        const SizedBox(width: 10),
-                        // Text Lines Mock
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              // Government Text
-                              Row(
-                                children: [
-                                  Container(width: 8, height: 8, decoration: const BoxDecoration(color: Colors.orange, shape: BoxShape.circle)),
-                                  const SizedBox(width: 4),
-                                  Container(width: 40, height: 4, color: Colors.black12),
-                                ],
-                              ),
-                              const SizedBox(height: 8),
-                              // Name
-                              Container(width: 60, height: 4, color: Colors.black26),
-                              const SizedBox(height: 4),
-                              // Aadhaar Number (simulated red number from design)
-                              const Text(
-                                '7632 7365 9842',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.redAccent,
-                                  letterSpacing: 0.5,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              // Footer Green Line
-                              Container(width: double.infinity, height: 3, color: Colors.green.shade400),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 16),
-                _buildCameraIcon(),
-              ],
+        Row(
+          children: [
+            _buildCardSideUpload(
+              title: 'Front Side',
+              imagePath: _aadhaarFrontPath,
+              onTap: _scanAadhaarFront,
             ),
-          ),
+            const SizedBox(width: 12),
+            _buildCardSideUpload(
+              title: 'Back Side',
+              imagePath: _aadhaarBackPath,
+              onTap: _scanAadhaarBack,
+            ),
+          ],
         ),
       ],
     );
@@ -203,81 +335,27 @@ class _IdentityVerificationScreenState extends ConsumerState<IdentityVerificatio
         ),
         const SizedBox(height: 4),
         const Text(
-          'Upload a clear photo of your Pan Card',
+          'Upload front and back photos of your Pan Card',
           style: TextStyle(
             fontSize: 12,
             color: Colors.black45,
           ),
         ),
         const SizedBox(height: 12),
-        _buildDashedContainer(
-          height: 110,
-          child: Padding(
-            padding: const EdgeInsets.all(12.0),
-            child: Row(
-              children: [
-                // Mock PAN Card
-                Expanded(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [const Color(0xFFEBF3FC), const Color(0xFFE1EDFA)],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: const Color(0xFFD0E1F5)),
-                    ),
-                    child: Row(
-                      children: [
-                        // Profile Pic Mock
-                        Container(
-                          width: 40,
-                          height: 50,
-                          color: const Color(0x0D000000),
-                          child: const Icon(Icons.person, size: 24, color: Colors.black12),
-                        ),
-                        const SizedBox(width: 10),
-                        // PAN Text Lines Mock
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              // Header
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Container(width: 30, height: 4, color: Colors.black26),
-                                  Container(width: 10, height: 10, decoration: const BoxDecoration(color: Colors.orange, shape: BoxShape.circle)),
-                                ],
-                              ),
-                              const SizedBox(height: 6),
-                              Container(width: 50, height: 4, color: Colors.black12),
-                              const SizedBox(height: 4),
-                              Container(width: 70, height: 4, color: Colors.black12),
-                              const SizedBox(height: 6),
-                              // Hologram/Barcode Mock
-                              Row(
-                                children: [
-                                  Container(width: 15, height: 15, color: Colors.amber.shade300),
-                                  const SizedBox(width: 8),
-                                  Container(width: 45, height: 8, color: Colors.black38),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 16),
-                _buildCameraIcon(),
-              ],
+        Row(
+          children: [
+            _buildCardSideUpload(
+              title: 'Front Side',
+              imagePath: _panFrontPath,
+              onTap: _scanPanFront,
             ),
-          ),
+            const SizedBox(width: 12),
+            _buildCardSideUpload(
+              title: 'Back Side',
+              imagePath: _panBackPath,
+              onTap: _scanPanBack,
+            ),
+          ],
         ),
       ],
     );
@@ -402,12 +480,34 @@ class _IdentityVerificationScreenState extends ConsumerState<IdentityVerificatio
                             onPressed: isLoading
                                 ? null
                                 : () async {
+                                    if (_selfiePath == null) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(content: Text('Please upload your selfie verification photo.')),
+                                      );
+                                      return;
+                                    }
+                                    if (_aadhaarFrontPath == null || _aadhaarBackPath == null) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(content: Text('Please capture both front and back of your Aadhaar Card.')),
+                                      );
+                                      return;
+                                    }
+                                    if (_panFrontPath == null || _panBackPath == null) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(content: Text('Please capture both front and back of your Pan Card.')),
+                                      );
+                                      return;
+                                    }
+
+                                    final frontBytes = await File(_aadhaarFrontPath!).readAsBytes();
+                                    final base64Doc = 'data:image/png;base64,${base64Encode(frontBytes)}';
+
                                     final success = await ref
                                         .read(providerProfileProvider.notifier)
                                         .updateProfile(
                                           aadharId: '763273659842',
                                           verificationDocs: {
-                                            'id_proof_url': 'https://cloudinary.com/mock-id-proof.jpg',
+                                            'id_proof_url': base64Doc,
                                           },
                                         );
 

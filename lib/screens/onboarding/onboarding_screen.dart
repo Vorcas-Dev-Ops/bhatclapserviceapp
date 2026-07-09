@@ -126,7 +126,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                                     height: 56,
                                     child: ElevatedButton(
                                       onPressed: () {
-                                        // TODO: Navigate to Register
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (context) => const LoginScreen(),
+                                          ),
+                                        );
                                       },
                                       style: ElevatedButton.styleFrom(
                                         backgroundColor: const Color(0xFF16155D),
