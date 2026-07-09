@@ -1,0 +1,640 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:partner_app/providers/jobs_provider.dart';
+import 'package:partner_app/screens/jobs/job_details_screen.dart';
+
+class JobsScreen extends ConsumerStatefulWidget {
+  const JobsScreen({super.key});
+
+  @override
+  ConsumerState<JobsScreen> createState() => _JobsScreenState();
+}
+
+class _JobsScreenState extends ConsumerState<JobsScreen> {
+  // Tabs: 0 -> Upcoming, 1 -> Ongoing, 2 -> New
+  int _activeTab = 2; // Default to 'New' as shown in the first screenshot
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(jobsProvider.notifier).fetchAllJobs();
+    });
+  }
+
+  void _navigateToDetails(dynamic booking, {bool isNewJob = false}) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => JobDetailsScreen(booking: booking, isNewJob: isNewJob),
+      ),
+    );
+  }
+
+  Widget _buildTopBar() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 12.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          const Text(
+            'Jobs',
+            style: TextStyle(
+              fontSize: 26,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF1C1F3E),
+            ),
+          ),
+          Row(
+            children: [
+              // Credits Pill
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF5F6FA),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Row(
+                  children: [
+                    Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        const Icon(
+                          Icons.hexagon,
+                          color: Color(0xFF2D3047),
+                          size: 20,
+                        ),
+                        Container(
+                          width: 6,
+                          height: 6,
+                          decoration: const BoxDecoration(
+                            color: Colors.white,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(width: 8),
+                    const Text(
+                      '200',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF2D3047),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              // Notification Bell with Badge
+              Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: const BoxDecoration(
+                      color: Color(0xFFEFF1FE),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.notifications_none_outlined,
+                      color: Color(0xFF16155D),
+                      size: 22,
+                    ),
+                  ),
+                  Positioned(
+                    top: -2,
+                    right: -2,
+                    child: Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: const BoxDecoration(
+                        color: Color(0xFF16155D),
+                        shape: BoxShape.circle,
+                      ),
+                      constraints: const BoxConstraints(
+                        minWidth: 16,
+                        minHeight: 16,
+                      ),
+                      child: const Center(
+                        child: Text(
+                          '4',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 9,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTabButton({
+    required String label,
+    required String count,
+    required int index,
+  }) {
+    final bool isActive = _activeTab == index;
+
+    return Expanded(
+      child: GestureDetector(
+        onTap: () {
+          setState(() {
+            _activeTab = index;
+          });
+        },
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          decoration: BoxDecoration(
+            color: isActive ? Colors.white : const Color(0xFFF5F6FA),
+            borderRadius: BorderRadius.circular(20),
+            border: isActive
+                ? Border.all(color: const Color(0xFF16155D), width: 1.5)
+                : null,
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                  color: isActive ? const Color(0xFF16155D) : Colors.black38,
+                ),
+              ),
+              const SizedBox(width: 6),
+              Container(
+                width: 18,
+                height: 18,
+                decoration: BoxDecoration(
+                  color: isActive ? const Color(0xFF16155D) : const Color(0xFFE5E7EB),
+                  shape: BoxShape.circle,
+                ),
+                child: Center(
+                  child: Text(
+                    count,
+                    style: TextStyle(
+                      color: isActive ? Colors.white : Colors.black38,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTabsRow() {
+    final jobsState = ref.watch(jobsProvider);
+    final upcomingCount = jobsState.bookings.where((b) => b['status'] == 'accepted').length;
+    final ongoingCount = jobsState.bookings.where((b) => ['started', 'waiting_start_otp', 'waiting_end_otp', 'in_progress'].contains(b['status'])).length;
+    final newCount = jobsState.newJobs.length;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24.0),
+      child: Row(
+        children: [
+          _buildTabButton(label: 'Upcoming', count: '$upcomingCount', index: 0),
+          const SizedBox(width: 8),
+          _buildTabButton(label: 'Ongoing', count: '$ongoingCount', index: 1),
+          const SizedBox(width: 8),
+          _buildTabButton(label: 'New', count: '$newCount', index: 2),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTimeChip(IconData icon, String text) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF5F6FA),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: Colors.black54),
+          const SizedBox(width: 4),
+          Text(
+            text,
+            style: const TextStyle(
+              fontSize: 11,
+              color: Colors.black87,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildJobCard({
+    required String title,
+    required String earnings,
+    required String location,
+    required String date,
+    required String time,
+    required String duration,
+    Widget? actionSection,
+    Widget? footerSection,
+    required double cardHeight,
+  }) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withAlpha(5),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          )
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                // Blue accent left bar
+                Container(
+                  width: 4,
+                  height: cardHeight,
+                  color: const Color(0xFF16155D),
+                ),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  title,
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF1C1F3E),
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  location,
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.black38,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                Text(
+                                  earnings,
+                                  style: const TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF16155D),
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                const Text(
+                                  'Earnings',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    color: Colors.black38,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        // Time Chips Row
+                        Row(
+                          children: [
+                            _buildTimeChip(Icons.calendar_today_outlined, date),
+                            const SizedBox(width: 8),
+                            _buildTimeChip(Icons.access_time_outlined, time),
+                            const SizedBox(width: 8),
+                            _buildTimeChip(Icons.history_toggle_off_outlined, duration),
+                          ],
+                        ),
+                        if (actionSection != null) ...[
+                          const SizedBox(height: 16),
+                          actionSection,
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            footerSection ?? const SizedBox.shrink(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNewJobsView() {
+    final jobsState = ref.watch(jobsProvider);
+    if (jobsState.newJobs.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 40.0),
+        child: Center(
+          child: Text(
+            'No new job requests at the moment.',
+            style: TextStyle(color: Colors.black38, fontSize: 14),
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      children: jobsState.newJobs.map((job) {
+        return _buildJobCard(
+          title: job.serviceName,
+          earnings: '₹${job.amount}',
+          location: '${job.address}, ${job.city}',
+          date: job.scheduledAt,
+          time: job.bookingTime,
+          duration: '60 Mins',
+          cardHeight: 154,
+          actionSection: Row(
+            children: [
+              Expanded(
+                child: SizedBox(
+                  height: 40,
+                  child: ElevatedButton(
+                    onPressed: () async {
+                      final success = await ref.read(jobsProvider.notifier).acceptJob(job.requestId);
+                      if (success && mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Job request accepted successfully!'), backgroundColor: Colors.green),
+                        );
+                      }
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF16155D),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      elevation: 0,
+                    ),
+                    child: const Text(
+                      'Accept Job',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: SizedBox(
+                  height: 40,
+                  child: OutlinedButton(
+                    onPressed: () => _navigateToDetails(job, isNewJob: true),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFF16155D),
+                      side: const BorderSide(color: Color(0xFF16155D), width: 1.5),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      elevation: 0,
+                    ),
+                    child: const Text(
+                      'View Details',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _buildUpcomingJobsView() {
+    final jobsState = ref.watch(jobsProvider);
+    final upcomingList = jobsState.bookings.where((b) => b['status'] == 'accepted').toList();
+
+    if (upcomingList.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 40.0),
+        child: Center(
+          child: Text(
+            'No upcoming schedule bookings.',
+            style: TextStyle(color: Colors.black38, fontSize: 14),
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Upcoming Jobs',
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: Color(0xFF1C1F3E),
+          ),
+        ),
+        const SizedBox(height: 12),
+        ...upcomingList.map((booking) {
+          final subservice = booking['subservice_id'] ?? {};
+          final serviceName = subservice['subservice_name'] ?? booking['variant_name'] ?? 'Cleaning Service';
+          final address = booking['address_id'] ?? {};
+          final addressLine = address['address_line'] ?? 'Address';
+          final city = address['city'] ?? 'City';
+
+          return _buildJobCard(
+            title: serviceName,
+            earnings: '₹${booking['payable_amount']}',
+            location: '$addressLine, $city',
+            date: booking['scheduled_at'] ?? 'Today',
+            time: booking['booking_time'] ?? 'Now',
+            duration: '60 Mins',
+            cardHeight: 154,
+            actionSection: SizedBox(
+              width: double.infinity,
+              height: 40,
+              child: OutlinedButton(
+                onPressed: () => _navigateToDetails(booking, isNewJob: false),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFF16155D),
+                  side: const BorderSide(color: Color(0xFF16155D), width: 1.5),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  elevation: 0,
+                ),
+                child: const Text(
+                  'View Details',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
+          );
+        }).toList(),
+      ],
+    );
+  }
+
+  Widget _buildOngoingJobsView() {
+    final jobsState = ref.watch(jobsProvider);
+    final ongoingList = jobsState.bookings
+        .where((b) => ['started', 'waiting_start_otp', 'waiting_end_otp', 'in_progress'].contains(b['status']))
+        .toList();
+
+    if (ongoingList.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 40.0),
+        child: Center(
+          child: Text(
+            'No ongoing services.',
+            style: TextStyle(color: Colors.black38, fontSize: 14),
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      children: ongoingList.map((booking) {
+        final subservice = booking['subservice_id'] ?? {};
+        final serviceName = subservice['subservice_name'] ?? booking['variant_name'] ?? 'Cleaning Service';
+        final address = booking['address_id'] ?? {};
+        final addressLine = address['address_line'] ?? 'Address';
+        final city = address['city'] ?? 'City';
+        final status = booking['status'] ?? 'started';
+        final displayStatus = status == 'waiting_start_otp'
+            ? 'WAITING FOR START OTP'
+            : status == 'waiting_end_otp'
+                ? 'WAITING FOR END OTP'
+                : 'SERVICE IN PROGRESS';
+
+        return _buildJobCard(
+          title: serviceName,
+          earnings: '₹${booking['payable_amount']}',
+          location: '$addressLine, $city',
+          date: booking['scheduled_at'] ?? 'Today',
+          time: booking['booking_time'] ?? 'Now',
+          duration: '60 Mins',
+          cardHeight: 194,
+          actionSection: SizedBox(
+            width: double.infinity,
+            height: 40,
+            child: OutlinedButton(
+              onPressed: () => _navigateToDetails(booking, isNewJob: false),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: const Color(0xFF16155D),
+                side: const BorderSide(color: Color(0xFF16155D), width: 1.5),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                elevation: 0,
+              ),
+              child: const Text(
+                'View Progress Details',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ),
+          footerSection: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            color: const Color(0xFFEFF1FE),
+            child: Center(
+              child: Text(
+                displayStatus,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF16155D),
+                  letterSpacing: 0.5,
+                ),
+              ),
+            ),
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final jobsState = ref.watch(jobsProvider);
+    final isLoading = jobsState.status == JobsStatus.loading;
+
+    Widget activeView;
+    if (isLoading) {
+      activeView = const Padding(
+        padding: EdgeInsets.symmetric(vertical: 80.0),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    } else if (_activeTab == 0) {
+      activeView = _buildUpcomingJobsView();
+    } else if (_activeTab == 1) {
+      activeView = _buildOngoingJobsView();
+    } else {
+      activeView = _buildNewJobsView();
+    }
+
+    return Column(
+      children: [
+        _buildTopBar(),
+        const SizedBox(height: 12),
+        _buildTabsRow(),
+        const SizedBox(height: 24),
+        Expanded(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 24.0),
+            child: activeView,
+          ),
+        ),
+      ],
+    );
+  }
+}
