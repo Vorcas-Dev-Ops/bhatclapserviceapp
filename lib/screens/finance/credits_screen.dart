@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:partner_app/providers/wallet_provider.dart';
 import 'package:partner_app/screens/finance/add_credits_screen.dart';
 
-class CreditsScreen extends StatelessWidget {
+class CreditsScreen extends ConsumerWidget {
   const CreditsScreen({super.key});
 
   Widget _buildTopBar(BuildContext context) {
@@ -27,7 +29,7 @@ class CreditsScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildBalanceCard(BuildContext context) {
+  Widget _buildBalanceCard(BuildContext context, int credits) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 8.0),
       child: Container(
@@ -72,9 +74,9 @@ class CreditsScreen extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(width: 12),
-                    const Text(
-                      '144',
-                      style: TextStyle(
+                    Text(
+                      credits.toString(),
+                      style: const TextStyle(
                         fontSize: 32,
                         fontWeight: FontWeight.bold,
                         color: Color(0xFF16155D),
@@ -253,14 +255,17 @@ class CreditsScreen extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final walletState = ref.watch(walletProvider);
+    final credits = walletState.credits;
+
     return Scaffold(
       backgroundColor: const Color(0xFFFAFAFC),
       body: SafeArea(
         child: Column(
           children: [
             _buildTopBar(context),
-            _buildBalanceCard(context),
+            _buildBalanceCard(context, credits),
             const SizedBox(height: 8),
             _buildPillTabs(),
             const SizedBox(height: 8),
@@ -289,13 +294,12 @@ class CreditsScreen extends StatelessWidget {
                       isPositive: false,
                     ),
                     _buildTransactionCard(
-                      icon: Icons.shopping_bag_outlined,
-                      iconBgColor: const Color(0xFFEFF1FE),
-                      iconColor: const Color(0xFF16155D),
-                      title: 'Lead Bought',
-                      subtitlePrefix: '31 May 2026 • 11:24 AM',
-                      subtitleName: 'Sonali Kumari',
-                      value: '- 36 cr.',
+                      icon: Icons.flash_on_outlined,
+                      iconBgColor: const Color(0xFFFFEBEE),
+                      iconColor: Colors.red,
+                      title: 'Paid for booking BK-9023',
+                      subtitlePrefix: 'Today • 02:30 PM',
+                      value: '- 20 cr.',
                       isPositive: false,
                     ),
                     _buildTransactionCard(

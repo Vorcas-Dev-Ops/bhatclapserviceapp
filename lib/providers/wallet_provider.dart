@@ -3,6 +3,7 @@ import 'package:dio/dio.dart';
 import '../services/api_client.dart';
 import 'api_providers.dart';
 import 'provider_profile_provider.dart';
+import 'auth_provider.dart';
 
 enum WalletStatus { initial, loading, loaded, error }
 
@@ -11,6 +12,7 @@ class WalletState {
   final double balance;
   final List<dynamic> transactions;
   final List<dynamic> reviews;
+  final int credits;
   final String? errorMessage;
 
   WalletState({
@@ -18,6 +20,7 @@ class WalletState {
     this.balance = 0.0,
     this.transactions = const [],
     this.reviews = const [],
+    this.credits = 144,
     this.errorMessage,
   });
 
@@ -28,6 +31,7 @@ class WalletState {
     double? balance,
     List<dynamic>? transactions,
     List<dynamic>? reviews,
+    int? credits,
     String? errorMessage,
   }) {
     return WalletState(
@@ -35,6 +39,7 @@ class WalletState {
       balance: balance ?? this.balance,
       transactions: transactions ?? this.transactions,
       reviews: reviews ?? this.reviews,
+      credits: credits ?? this.credits,
       errorMessage: errorMessage ?? this.errorMessage,
     );
   }
@@ -76,6 +81,9 @@ class WalletNotifier extends StateNotifier<WalletState> {
         reviews: reviews,
       );
     } on DioException catch (e) {
+      if (e.response?.statusCode == 401) {
+        _ref.read(authProvider.notifier).logout();
+      }
       state = state.copyWith(
         status: WalletStatus.error,
         errorMessage: e.response?.data['message'] ?? 'Failed to load wallet/reviews info',
@@ -94,6 +102,11 @@ class WalletNotifier extends StateNotifier<WalletState> {
         // Reload wallet details
         await fetchWalletAndReviews();
         return true;
+      }
+      return false;
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 401) {
+        _ref.read(authProvider.notifier).logout();
       }
       return false;
     } catch (_) {
@@ -117,9 +130,19 @@ class WalletNotifier extends StateNotifier<WalletState> {
         },
       );
       return response.statusCode == 201;
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 401) {
+        _ref.read(authProvider.notifier).logout();
+      }
+      return false;
     } catch (_) {
       return false;
     }
+  }
+
+  // Add credits locally
+  void addCredits(int amount) {
+    state = state.copyWith(credits: state.credits + amount);
   }
 }
 

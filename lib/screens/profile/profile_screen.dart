@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:partner_app/providers/auth_provider.dart';
+import 'package:partner_app/providers/job_dispatch_provider.dart';
 import 'package:partner_app/screens/onboarding/onboarding_screen.dart';
 import 'package:partner_app/screens/finance/loans_screen.dart';
 import 'package:partner_app/screens/profile/profile_identity_verification_screen.dart';
@@ -27,7 +28,16 @@ class ProfileScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildProfileCard() {
+  Widget _buildProfileCard(WidgetRef ref) {
+    final authState = ref.watch(authProvider);
+    final dispatchState = ref.watch(jobDispatchProvider);
+    final user = authState.user;
+    final name = user?.name ?? 'Partner';
+    final email = user?.email ?? '';
+    final phone = user?.phone ?? '';
+    final profileImage = user?.profileImage;
+    final isOnline = dispatchState.isOnline;
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 8.0),
       child: Container(
@@ -49,18 +59,20 @@ class ProfileScreen extends ConsumerWidget {
             // Left Profile Picture with Available Badge
             Column(
               children: [
-                const CircleAvatar(
+                CircleAvatar(
                   radius: 46,
-                  backgroundImage: NetworkImage(
-                    'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150',
-                  ),
-                  backgroundColor: Color(0xFFEFF1FE),
+                  backgroundImage: (profileImage != null && profileImage.isNotEmpty)
+                      ? NetworkImage(profileImage)
+                      : const NetworkImage(
+                          'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150',
+                        ) as ImageProvider,
+                  backgroundColor: const Color(0xFFEFF1FE),
                 ),
                 const SizedBox(height: 12),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFE8F5E9),
+                    color: isOnline ? const Color(0xFFE8F5E9) : const Color(0xFFFFEFEF),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Row(
@@ -69,18 +81,18 @@ class ProfileScreen extends ConsumerWidget {
                       Container(
                         width: 6,
                         height: 6,
-                        decoration: const BoxDecoration(
-                          color: Color(0xFF2E7D32),
+                        decoration: BoxDecoration(
+                          color: isOnline ? const Color(0xFF2E7D32) : Colors.red,
                           shape: BoxShape.circle,
                         ),
                       ),
                       const SizedBox(width: 6),
-                      const Text(
-                        'Available',
+                      Text(
+                        isOnline ? 'Available' : 'Offline',
                         style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.bold,
-                          color: Color(0xFF2E7D32),
+                          color: isOnline ? const Color(0xFF2E7D32) : Colors.red,
                         ),
                       ),
                     ],
@@ -97,9 +109,9 @@ class ProfileScreen extends ConsumerWidget {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text(
-                        'Muthupandi P',
-                        style: TextStyle(
+                      Text(
+                        name,
+                        style: const TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
                           color: Color(0xFF1C1F3E),
@@ -118,17 +130,17 @@ class ProfileScreen extends ConsumerWidget {
                     ],
                   ),
                   const SizedBox(height: 6),
-                  const Text(
-                    '8912451212',
-                    style: TextStyle(
+                  Text(
+                    phone,
+                    style: const TextStyle(
                       fontSize: 13,
                       color: Colors.black38,
                     ),
                   ),
                   const SizedBox(height: 4),
-                  const Text(
-                    'chellom.muthupandi@gmail.\ncom',
-                    style: TextStyle(
+                  Text(
+                    email,
+                    style: const TextStyle(
                       fontSize: 13,
                       color: Colors.black38,
                       height: 1.3,
@@ -415,7 +427,7 @@ class ProfileScreen extends ConsumerWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _buildProfileCard(),
+                _buildProfileCard(ref),
                 _buildSectionHeader('MY ACTIVITY'),
                 _buildActivityGroup(context),
                 _buildSectionHeader('ACCOUNT'),

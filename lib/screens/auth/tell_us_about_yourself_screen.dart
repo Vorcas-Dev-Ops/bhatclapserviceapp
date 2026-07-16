@@ -22,6 +22,32 @@ class _TellUsAboutYourselfScreenState extends ConsumerState<TellUsAboutYourselfS
   List<String> _selectedLanguages = [];
 
   @override
+  void initState() {
+    super.initState();
+    final user = ref.read(authProvider).user;
+    if (user != null) {
+      if (user.name != null && user.name!.isNotEmpty) {
+        _nameController.text = user.name!;
+      }
+      if (user.email != null && user.email!.isNotEmpty) {
+        _emailController.text = user.email!;
+      }
+      if (user.gender != null && user.gender!.isNotEmpty) {
+        final g = user.gender!.trim().toLowerCase();
+        if (g == 'male') {
+          _selectedGender = 'Male';
+        } else if (g == 'female') {
+          _selectedGender = 'Female';
+        } else if (g == 'other') {
+          _selectedGender = 'Other';
+        } else {
+          _selectedGender = g[0].toUpperCase() + g.substring(1);
+        }
+      }
+    }
+  }
+
+  @override
   void dispose() {
     _nameController.dispose();
     _dobController.dispose();

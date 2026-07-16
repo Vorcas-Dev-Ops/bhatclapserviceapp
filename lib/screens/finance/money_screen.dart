@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:partner_app/providers/wallet_provider.dart';
+import 'package:partner_app/providers/provider_profile_provider.dart';
 import 'package:partner_app/screens/finance/loans_screen.dart';
 import 'package:partner_app/screens/finance/credits_screen.dart';
+import 'package:partner_app/screens/auth/bank_details_screen.dart';
 
 class MoneyScreen extends ConsumerStatefulWidget {
   const MoneyScreen({super.key});
@@ -19,6 +21,7 @@ class _MoneyScreenState extends ConsumerState<MoneyScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(walletProvider.notifier).fetchWalletAndReviews();
+      ref.read(providerProfileProvider.notifier).fetchProfile();
     });
   }
 
@@ -29,6 +32,43 @@ class _MoneyScreenState extends ConsumerState<MoneyScreen> {
   }
 
   void _showWithdrawDialog(double balance) {
+    final profile = ref.read(providerProfileProvider).profileData;
+    final hasBank = profile != null && profile['bank_details'] != null && profile['bank_details']['bank_name'] != null;
+
+    if (!hasBank) {
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Text(
+            'Link Bank Account',
+            style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF16155D)),
+          ),
+          content: const Text('Please link your bank account first to withdraw money.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel', style: TextStyle(color: Colors.black54)),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const BankDetailsScreen(isEditing: true)),
+                ).then((_) {
+                  ref.read(providerProfileProvider.notifier).fetchProfile();
+                });
+              },
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF16155D)),
+              child: const Text('Link Now', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
     _amountController.clear();
     showDialog(
       context: context,
@@ -95,7 +135,7 @@ class _MoneyScreenState extends ConsumerState<MoneyScreen> {
     );
   }
 
-  Widget _buildTopBar(double balance) {
+  Widget _buildTopBar(double balance, int credits) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 12.0),
       child: Row(
@@ -145,9 +185,9 @@ class _MoneyScreenState extends ConsumerState<MoneyScreen> {
                         ],
                       ),
                       const SizedBox(width: 8),
-                      const Text(
-                        '144',
-                        style: TextStyle(
+                      Text(
+                        credits.toString(),
+                        style: const TextStyle(
                           fontSize: 15,
                           fontWeight: FontWeight.bold,
                           color: Color(0xFF2D3047),
@@ -382,7 +422,89 @@ class _MoneyScreenState extends ConsumerState<MoneyScreen> {
     );
   }
 
-  Widget _buildExploreMore(BuildContext context) {
+  Widget _buildBankAccountCard(Map<String, dynamic>? bankDetails) {
+    final hasBank = bankDetails != null && bankDetails['bank_name'] != null && bankDetails['bank_name'].toString().isNotEmpty;
+    
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 8.0),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withAlpha(8),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            )
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: const BoxDecoration(
+                color: Color(0xFFEFF1FE),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.account_balance_outlined,
+                color: Color(0xFF16155D),
+                size: 22,
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Linked Bank Account',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF1C1F3E),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    hasBank
+                        ? '${bankDetails['bank_name']} •••• ${bankDetails['account_number']?.toString().substring((bankDetails['account_number']?.toString().length ?? 4) - 4) ?? '****'}'
+                        : 'No bank account linked',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: hasBank ? Colors.black54 : Colors.redAccent,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const BankDetailsScreen(isEditing: true)),
+                ).then((_) {
+                  ref.read(providerProfileProvider.notifier).fetchProfile();
+                });
+              },
+              child: Text(
+                hasBank ? 'Edit' : 'Link',
+                style: const TextStyle(
+                  color: Color(0xFF16155D),
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildExploreMore(BuildContext context, int credits) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 8.0),
       child: Column(
@@ -508,8 +630,8 @@ class _MoneyScreenState extends ConsumerState<MoneyScreen> {
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
-                        children: const [
-                          Text(
+                        children: [
+                          const Text(
                             'Credits',
                             style: TextStyle(
                               fontSize: 14,
@@ -517,10 +639,10 @@ class _MoneyScreenState extends ConsumerState<MoneyScreen> {
                               color: Color(0xFF1C1F3E),
                             ),
                           ),
-                          SizedBox(height: 4),
+                          const SizedBox(height: 4),
                           Text(
-                            '144 available',
-                            style: TextStyle(
+                            '$credits available',
+                            style: const TextStyle(
                               fontSize: 12,
                               color: Colors.black38,
                               fontWeight: FontWeight.w500,
@@ -547,26 +669,31 @@ class _MoneyScreenState extends ConsumerState<MoneyScreen> {
   @override
   Widget build(BuildContext context) {
     final walletState = ref.watch(walletProvider);
-    final isLoading = walletState.status == WalletStatus.loading;
+    final profileState = ref.watch(providerProfileProvider);
+    final isLoading = walletState.status == WalletStatus.loading || profileState.status == ProfileStatus.loading;
 
     return Column(
       children: [
-        _buildTopBar(walletState.balance),
+        _buildTopBar(walletState.balance, walletState.credits),
         const SizedBox(height: 8),
         Expanded(
           child: isLoading
-              ? const Center(child: CircularProgressIndicator())
+              ? const Center(child: CircularProgressIndicator(color: Color(0xFF16155D)))
               : RefreshIndicator(
-                  onRefresh: () => ref.read(walletProvider.notifier).fetchWalletAndReviews(),
+                  onRefresh: () async {
+                    await ref.read(walletProvider.notifier).fetchWalletAndReviews();
+                    await ref.read(providerProfileProvider.notifier).fetchProfile();
+                  },
                   child: SingleChildScrollView(
                     physics: const AlwaysScrollableScrollPhysics(),
                     child: Column(
                       children: [
                         _buildBalanceCard(walletState.balance),
+                        _buildBankAccountCard(profileState.profileData?['bank_details']),
                         _buildAlertBanner(),
                         _buildTransfersSection(walletState.transactions),
                         const SizedBox(height: 16),
-                        _buildExploreMore(context),
+                        _buildExploreMore(context, walletState.credits),
                         const SizedBox(height: 24),
                       ],
                     ),

@@ -120,11 +120,13 @@ class JobDispatchNotifier extends StateNotifier<DispatchState> {
   // Toggle availability status online / offline
   Future<bool> toggleAvailability() async {
     final nextStatus = state.isOnline ? 'offline' : 'available';
+    print('=== toggleAvailability started. Current online: ${state.isOnline}, nextStatus: $nextStatus ===');
     try {
       final response = await _apiClient.dio.put(
         '/api/providers/availability',
         data: {'status': nextStatus},
       );
+      print('=== toggleAvailability response status: ${response.statusCode}, data: ${response.data} ===');
       if (response.statusCode == 200) {
         final isOnline = response.data['isOnline'] == true;
         state = state.copyWith(isOnline: isOnline);
@@ -137,7 +139,8 @@ class JobDispatchNotifier extends StateNotifier<DispatchState> {
       }
       return false;
     } catch (e) {
-      state = state.copyWith(error: 'Failed to update availability status');
+      print('=== toggleAvailability exception: $e ===');
+      state = state.copyWith(error: 'Failed to update availability status: $e');
       return false;
     }
   }

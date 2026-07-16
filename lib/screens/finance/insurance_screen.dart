@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../providers/auth_provider.dart';
 
-class InsuranceScreen extends StatelessWidget {
+class InsuranceScreen extends ConsumerWidget {
   const InsuranceScreen({super.key});
 
   Widget _buildTopBar(BuildContext context) {
@@ -26,7 +28,10 @@ class InsuranceScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildPolicyStatusCard() {
+  Widget _buildPolicyStatusCard(WidgetRef ref) {
+    final authState = ref.watch(authProvider);
+    final name = authState.user?.name?.toUpperCase() ?? 'PARTNER';
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 8.0),
       child: Container(
@@ -51,8 +56,8 @@ class InsuranceScreen extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'MUTHUPANDI P',
+                  Text(
+                    name,
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
@@ -278,7 +283,7 @@ class InsuranceScreen extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return Scaffold(
       backgroundColor: const Color(0xFFFAFAFC),
       body: SafeArea(
@@ -292,7 +297,7 @@ class InsuranceScreen extends StatelessWidget {
                     padding: const EdgeInsets.only(bottom: 100),
                     child: Column(
                       children: [
-                        _buildPolicyStatusCard(),
+                        _buildPolicyStatusCard(ref),
                         const SizedBox(height: 8),
                         _buildBenefitsGrid(),
                       ],

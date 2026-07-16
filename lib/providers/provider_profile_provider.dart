@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
 import '../services/api_client.dart';
 import 'api_providers.dart';
+import 'auth_provider.dart';
 
 enum ProfileStatus { initial, loading, loaded, error }
 
@@ -33,22 +34,33 @@ class ProfileState {
 
 class ProviderProfileNotifier extends StateNotifier<ProfileState> {
   final ApiClient _apiClient;
+  final Ref _ref;
 
-  ProviderProfileNotifier({required ApiClient apiClient})
+  ProviderProfileNotifier({required ApiClient apiClient, required Ref ref})
       : _apiClient = apiClient,
+        _ref = ref,
         super(ProfileState.initial());
 
   Future<void> fetchProfile() async {
+    print('=== ProviderProfileNotifier: fetchProfile started ===');
     state = state.copyWith(status: ProfileStatus.loading);
     try {
+      print('=== ProviderProfileNotifier: requesting /api/providers/me ===');
       final response = await _apiClient.dio.get('/api/providers/me');
+      print('=== ProviderProfileNotifier: /api/providers/me status code: ${response.statusCode} ===');
       if (response.statusCode == 200) {
         state = ProfileState(
           status: ProfileStatus.loaded,
           profileData: response.data,
         );
+        print('=== ProviderProfileNotifier: loaded profile successfully ===');
       }
     } on DioException catch (e) {
+      print('=== ProviderProfileNotifier: fetchProfile threw DioException: $e ===');
+      if (e.response?.statusCode == 401) {
+        print('=== ProviderProfileNotifier: unauthorized (401), logging out ===');
+        _ref.read(authProvider.notifier).logout();
+      }
       state = ProfileState(
         status: ProfileStatus.error,
         errorMessage: e.response?.data['message'] ?? 'Failed to load profile',
@@ -80,6 +92,12 @@ class ProviderProfileNotifier extends StateNotifier<ProfileState> {
       }
       return false;
     } on DioException catch (e) {
+      print('=== ProviderProfileNotifier: updateProfile DioException: $e ===');
+      print('=== Response status code: ${e.response?.statusCode} ===');
+      print('=== Response data: ${e.response?.data} ===');
+      if (e.response?.statusCode == 401) {
+        _ref.read(authProvider.notifier).logout();
+      }
       state = state.copyWith(
         status: ProfileStatus.error,
         errorMessage: e.response?.data['message'] ?? 'Failed to update profile',
@@ -119,6 +137,9 @@ class ProviderProfileNotifier extends StateNotifier<ProfileState> {
       }
       return false;
     } on DioException catch (e) {
+      if (e.response?.statusCode == 401) {
+        _ref.read(authProvider.notifier).logout();
+      }
       state = state.copyWith(
         status: ProfileStatus.error,
         errorMessage: e.response?.data['message'] ?? 'Failed to register services',
@@ -131,5 +152,5 @@ class ProviderProfileNotifier extends StateNotifier<ProfileState> {
 final providerProfileProvider =
     StateNotifierProvider<ProviderProfileNotifier, ProfileState>((ref) {
   final apiClient = ref.watch(apiClientProvider);
-  return ProviderProfileNotifier(apiClient: apiClient);
+  return ProviderProfileNotifier(apiClient: apiClient, ref: ref);
 });

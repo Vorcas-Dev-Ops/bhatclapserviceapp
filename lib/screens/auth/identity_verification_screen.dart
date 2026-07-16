@@ -7,10 +7,12 @@ import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:cunning_document_scanner/cunning_document_scanner.dart';
 import 'package:partner_app/providers/provider_profile_provider.dart';
+import 'package:partner_app/providers/auth_provider.dart';
 import 'package:partner_app/screens/auth/bank_details_screen.dart';
 
 class IdentityVerificationScreen extends ConsumerStatefulWidget {
-  const IdentityVerificationScreen({super.key});
+  final bool fromProfile;
+  const IdentityVerificationScreen({super.key, this.fromProfile = false});
 
   @override
   ConsumerState<IdentityVerificationScreen> createState() => _IdentityVerificationScreenState();
@@ -499,6 +501,24 @@ class _IdentityVerificationScreenState extends ConsumerState<IdentityVerificatio
                                       return;
                                     }
 
+                                    // 1. Process Selfie image and upload as Profile Image
+                                    final selfieBytes = await File(_selfiePath!).readAsBytes();
+                                    final base64Selfie = 'data:image/png;base64,${base64Encode(selfieBytes)}';
+
+                                    final selfieSuccess = await ref
+                                        .read(authProvider.notifier)
+                                        .updateProfileImage(base64Selfie);
+
+                                    if (!selfieSuccess) {
+                                      if (mounted) {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          const SnackBar(content: Text('Failed to upload selfie profile picture.')),
+                                        );
+                                      }
+                                      return;
+                                    }
+
+                                    // 2. Process Aadhaar front image and upload as Document Image
                                     final frontBytes = await File(_aadhaarFrontPath!).readAsBytes();
                                     final base64Doc = 'data:image/png;base64,${base64Encode(frontBytes)}';
 
@@ -512,17 +532,24 @@ class _IdentityVerificationScreenState extends ConsumerState<IdentityVerificatio
                                         );
 
                                     if (success && mounted) {
-                                      Navigator.push(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (context) => const BankDetailsScreen(),
-                                        ),
-                                      );
+                                      if (widget.fromProfile) {
+                                        Navigator.pop(context);
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          const SnackBar(content: Text('Identity documents submitted successfully.')),
+                                        );
+                                      } else {
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (context) => const BankDetailsScreen(),
+                                          ),
+                                        );
+                                      }
                                     } else if (mounted) {
                                       ScaffoldMessenger.of(context).showSnackBar(
                                         SnackBar(
                                           content: Text(
-                                            profileState.errorMessage ?? 'Failed to submit identity docs',
+                                            ref.read(providerProfileProvider).errorMessage ?? 'Failed to submit identity docs',
                                           ),
                                         ),
                                       );

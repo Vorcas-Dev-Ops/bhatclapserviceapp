@@ -40,6 +40,22 @@ class _SelectSubCategoriesScreenState extends ConsumerState<SelectSubCategoriesS
     });
   }
 
+  void _onBulkSelectionChanged(List<String> subserviceIds, bool selectAll) {
+    setState(() {
+      if (selectAll) {
+        for (var id in subserviceIds) {
+          if (!_selectedSubserviceIds.contains(id)) {
+            _selectedSubserviceIds.add(id);
+          }
+        }
+      } else {
+        for (var id in subserviceIds) {
+          _selectedSubserviceIds.remove(id);
+        }
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final profileState = ref.watch(providerProfileProvider);
@@ -117,6 +133,7 @@ class _SelectSubCategoriesScreenState extends ConsumerState<SelectSubCategoriesS
                         categoryName: category['category_name'],
                         selectedSubserviceIds: _selectedSubserviceIds,
                         onSelectionChanged: _onSelectionChanged,
+                        onBulkSelectionChanged: _onBulkSelectionChanged,
                       ),
                     );
                   }).toList(),
@@ -235,6 +252,7 @@ class CategorySubservicesSection extends ConsumerWidget {
   final String categoryName;
   final List<String> selectedSubserviceIds;
   final Function(String, bool) onSelectionChanged;
+  final Function(List<String>, bool) onBulkSelectionChanged;
 
   const CategorySubservicesSection({
     super.key,
@@ -242,6 +260,7 @@ class CategorySubservicesSection extends ConsumerWidget {
     required this.categoryName,
     required this.selectedSubserviceIds,
     required this.onSelectionChanged,
+    required this.onBulkSelectionChanged,
   });
 
   @override
@@ -251,13 +270,65 @@ class CategorySubservicesSection extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          categoryName,
-          style: const TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-            color: Color(0xFF16155D),
-          ),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              categoryName,
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF16155D),
+              ),
+            ),
+            subservicesAsync.when(
+              data: (subservices) {
+                if (subservices.isEmpty) return const SizedBox.shrink();
+                final ids = subservices.map((s) => s['_id'].toString()).toList();
+                final allSelected = ids.every((id) => selectedSubserviceIds.contains(id));
+                return GestureDetector(
+                  onTap: () {
+                    onBulkSelectionChanged(ids, !allSelected);
+                  },
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text(
+                        'Select All',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.black54,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Container(
+                        width: 18,
+                        height: 18,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(
+                            color: allSelected ? const Color(0xFF16155D) : const Color(0xFFC5C9E0),
+                            width: 1.5,
+                          ),
+                          color: allSelected ? const Color(0xFF16155D) : Colors.transparent,
+                        ),
+                        child: allSelected
+                            ? const Icon(
+                                Icons.check,
+                                size: 12,
+                                color: Colors.white,
+                              )
+                            : null,
+                      ),
+                    ],
+                  ),
+                );
+              },
+              loading: () => const SizedBox.shrink(),
+              error: (_, __) => const SizedBox.shrink(),
+            ),
+          ],
         ),
         const SizedBox(height: 12),
         subservicesAsync.when(

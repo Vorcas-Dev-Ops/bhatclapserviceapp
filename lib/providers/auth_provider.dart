@@ -63,15 +63,20 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
   // Check if user session already exists
   Future<void> checkAuth() async {
+    print('=== AuthProvider: checkAuth started ===');
     state = state.copyWith(status: AuthStatus.loading);
     final token = await _tokenStorage.getAccessToken();
+    print('=== AuthProvider: getAccessToken returned: $token ===');
     if (token == null || token.isEmpty) {
+      print('=== AuthProvider: token is null or empty, setting unauthenticated ===');
       state = state.copyWith(status: AuthStatus.unauthenticated);
       return;
     }
 
     try {
+      print('=== AuthProvider: requesting /api/users/me ===');
       final response = await _apiClient.dio.get('/api/users/me');
+      print('=== AuthProvider: /api/users/me status code: ${response.statusCode} ===');
       if (response.statusCode == 200) {
         final userData = response.data['user'] ?? response.data;
         final userModel = UserModel.fromJson(userData);
@@ -79,23 +84,38 @@ class AuthNotifier extends StateNotifier<AuthState> {
           status: AuthStatus.authenticated,
           user: userModel,
         );
+        print('=== AuthProvider: authenticated user ${userModel.name} ===');
       } else {
+        print('=== AuthProvider: status code not 200, setting unauthenticated ===');
         state = state.copyWith(status: AuthStatus.unauthenticated);
       }
     } catch (e) {
+      print('=== AuthProvider: checkAuth threw exception: $e ===');
       // If endpoint check fails, token might be invalid or expired (and refresh failed)
       state = state.copyWith(status: AuthStatus.unauthenticated);
     }
   }
 
+  String _normalizePhone(String phone) {
+    final clean = phone.replaceAll(RegExp(r'\s+'), '');
+    if (clean.startsWith('+')) {
+      return clean;
+    }
+    if (clean.length == 10) {
+      return '+91$clean';
+    }
+    return clean;
+  }
+
   // Step 1: Send OTP to Phone
   Future<bool> sendOtp(String phone) async {
+    final normalized = _normalizePhone(phone);
     state = state.copyWith(status: AuthStatus.loading);
     try {
       final response = await _apiClient.dio.post(
         '/api/users/send-otp',
         data: {
-          'identifier': phone,
+          'identifier': normalized,
           'role': 'provider',
           'useEmail': false,
           'mode': 'login',
@@ -104,7 +124,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
       if (response.statusCode == 200) {
         state = state.copyWith(
           status: AuthStatus.unauthenticated,
-          pendingPhone: phone,
+          pendingPhone: normalized,
         );
         return true;
       }
@@ -252,6 +272,28 @@ class AuthNotifier extends StateNotifier<AuthState> {
         status: AuthStatus.error,
         errorMessage: e.response?.data['message'] ?? 'Error during registration',
       );
+      return false;
+    }
+  }
+
+  // Update user profile image (Selfie)
+  Future<bool> updateProfileImage(String base64Image) async {
+    try {
+      final response = await _apiClient.dio.put(
+        '/api/users/me',
+        data: {
+          'profile_image': base64Image,
+        },
+      );
+      if (response.statusCode == 200) {
+        final userData = response.data['user'] ?? response.data;
+        final userModel = UserModel.fromJson(userData);
+        state = state.copyWith(user: userModel);
+        return true;
+      }
+      return false;
+    } on DioException catch (e) {
+      print('=== AuthNotifier: updateProfileImage exception: $e ===');
       return false;
     }
   }

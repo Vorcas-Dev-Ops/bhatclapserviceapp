@@ -1,13 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:partner_app/providers/wallet_provider.dart';
 
-class AddCreditsScreen extends StatefulWidget {
+class AddCreditsScreen extends ConsumerStatefulWidget {
   const AddCreditsScreen({super.key});
 
   @override
-  State<AddCreditsScreen> createState() => _AddCreditsScreenState();
+  ConsumerState<AddCreditsScreen> createState() => _AddCreditsScreenState();
 }
 
-class _AddCreditsScreenState extends State<AddCreditsScreen> {
+class _AddCreditsScreenState extends ConsumerState<AddCreditsScreen> {
   int _selectedAmount = 100;
   final TextEditingController _creditsController = TextEditingController(text: '100');
 
@@ -431,6 +433,7 @@ class _AddCreditsScreenState extends State<AddCreditsScreen> {
               height: 52,
               child: ElevatedButton.icon(
                 onPressed: () {
+                  ref.read(walletProvider.notifier).addCredits(_selectedAmount);
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text('Added $_selectedAmount credits successfully!'),
