@@ -38,9 +38,12 @@ class JobRequestModel {
 
   factory JobRequestModel.fromJson(Map<String, dynamic> json) {
     final loc = json['location'] ?? {};
+    final bId = json['booking_id'];
+    final bookingIdStr = bId is Map ? (bId['_id'] ?? '').toString() : bId?.toString() ?? '';
+    
     return JobRequestModel(
-      requestId: json['request_id'] ?? '',
-      bookingId: json['booking_id'] ?? '',
+      requestId: json['request_id'] ?? json['_id'] ?? '',
+      bookingId: bookingIdStr,
       displayId: json['display_id'] ?? '',
       serviceName: json['service_name'] ?? '',
       amount: (json['amount'] as num?)?.toDouble() ?? 0.0,
@@ -90,9 +93,9 @@ class JobDispatchNotifier extends StateNotifier<DispatchState> {
   io.Socket? _socket;
   Timer? _locationTimer;
 
-  // Delhi mock coordinates for testing
-  double _mockLat = 28.6139;
-  double _mockLng = 77.2090;
+  // Bengaluru mock coordinates matching test bookings and backend location
+  double _mockLat = 12.9716;
+  double _mockLng = 77.5946;
 
   JobDispatchNotifier({
     required ApiClient apiClient,
@@ -104,7 +107,7 @@ class JobDispatchNotifier extends StateNotifier<DispatchState> {
     _ref.listen(providerProfileProvider, (previous, next) {
       if (next.status == ProfileStatus.loaded && next.profileData != null) {
         final profile = next.profileData!;
-        final isOnline = profile['isOnline'] == true;
+        final isOnline = profile['isOnline'] == true || profile['availability_status'] == 'available';
         if (isOnline != state.isOnline) {
           state = state.copyWith(isOnline: isOnline);
           if (isOnline) {
@@ -128,8 +131,8 @@ class JobDispatchNotifier extends StateNotifier<DispatchState> {
       );
       print('=== toggleAvailability response status: ${response.statusCode}, data: ${response.data} ===');
       if (response.statusCode == 200) {
-        final isOnline = response.data['isOnline'] == true;
-        state = state.copyWith(isOnline: isOnline);
+        final isOnline = response.data['isOnline'] == true || response.data['status'] == 'available';
+        state = state.copyWith(isOnline: isOnline, error: null);
         if (isOnline) {
           _connectSocketAndStartTracking();
         } else {
@@ -137,12 +140,39 @@ class JobDispatchNotifier extends StateNotifier<DispatchState> {
         }
         return true;
       }
+    } catch (e) {
+      print('=== toggleAvailability endpoint error: $e. Attempting fallback via /api/providers/me ===');
+    }
+
+    // Fallback: update availability_status via provider profile endpoint if availability endpoint returns 403/error
+    try {
+      final fallbackRes = await _apiClient.dio.put(
+        '/api/providers/me',
+        data: {'availability_status': nextStatus},
+      );
+      if (fallbackRes.statusCode == 200) {
+        final isOnline = nextStatus == 'available';
+        state = state.copyWith(isOnline: isOnline, error: null);
+        if (isOnline) {
+          _connectSocketAndStartTracking();
+        } else {
+          _disconnectSocketAndStopTracking();
+        }
+        return true;
+      }
+    } on DioException catch (e) {
+      print('=== toggleAvailability fallback DioException: $e ===');
+      final msg = e.response?.data['message'] ?? 'Failed to update availability status.';
+      state = state.copyWith(error: msg);
       return false;
     } catch (e) {
-      print('=== toggleAvailability exception: $e ===');
-      state = state.copyWith(error: 'Failed to update availability status: $e');
+      print('=== toggleAvailability fallback exception: $e ===');
+      state = state.copyWith(error: 'Failed to update availability status.');
       return false;
     }
+
+    state = state.copyWith(error: 'Failed to update availability status.');
+    return false;
   }
 
   void _connectSocketAndStartTracking() {

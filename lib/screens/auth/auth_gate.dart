@@ -5,6 +5,7 @@ import 'package:partner_app/providers/provider_profile_provider.dart';
 import 'package:partner_app/screens/auth/approval_screen.dart';
 import 'package:partner_app/screens/auth/tell_us_about_yourself_screen.dart';
 import 'package:partner_app/screens/auth/services_you_offer_screen.dart';
+import 'package:partner_app/screens/auth/select_service_location_screen.dart';
 import 'package:partner_app/screens/auth/identity_verification_screen.dart';
 import 'package:partner_app/screens/auth/bank_details_screen.dart';
 import 'package:partner_app/screens/home/home_screen.dart';
@@ -138,31 +139,37 @@ class _InitialProfileCheckGateState extends ConsumerState<InitialProfileCheckGat
       );
     }
 
-    // 1. Select Services Completeness Check
+    // 1. KYC Approval Check
+    final kycStatus = profile['kyc_status'] ?? 'pending';
+    if (kycStatus == 'verified') {
+      return const HomeScreen();
+    }
+
+    // 2. Select Services Completeness Check
     final services = profile['services'] as List?;
     if (services == null || services.isEmpty) {
       return const ServicesYouOfferScreen();
     }
 
-    // 2. Identity Verification (Aadhaar / ID Proof) Completeness Check
+    // 3. Work Locations Completeness Check
+    final serviceLocations = profile['service_locations'] as List?;
+    if (serviceLocations == null || serviceLocations.isEmpty) {
+      return const SelectServiceLocationScreen();
+    }
+
+    // 4. Identity Verification (Aadhaar / ID Proof) Completeness Check
     final aadharLast4 = profile['aadhar_last4'];
     final idProofUrl = profile['verification_docs']?['id_proof_url'];
     if (aadharLast4 == null || idProofUrl == null || idProofUrl.toString().isEmpty) {
       return const IdentityVerificationScreen();
     }
 
-    // 3. Bank Account Details Completeness Check
+    // 5. Bank Account Details Completeness Check
     final bankDetails = profile['bank_details'];
     if (bankDetails == null || bankDetails['bank_name'] == null || bankDetails['bank_name'].toString().isEmpty) {
       return const BankDetailsScreen();
     }
 
-    // 4. KYC Approval Check
-    final kycStatus = profile['kyc_status'] ?? 'pending';
-    if (kycStatus == 'verified') {
-      return const HomeScreen();
-    } else {
-      return const ApprovalScreen();
-    }
+    return const ApprovalScreen();
   }
 }

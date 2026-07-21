@@ -1,6 +1,10 @@
+import 'dart:io';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:partner_app/providers/auth_provider.dart';
+import 'package:partner_app/providers/provider_profile_provider.dart';
 import 'package:partner_app/providers/job_dispatch_provider.dart';
 import 'package:partner_app/screens/onboarding/onboarding_screen.dart';
 import 'package:partner_app/screens/finance/loans_screen.dart';
@@ -11,8 +15,84 @@ import 'package:partner_app/screens/finance/credits_screen.dart';
 import 'package:partner_app/screens/profile/performance_screen.dart';
 import 'package:partner_app/screens/finance/insurance_screen.dart';
 
-class ProfileScreen extends ConsumerWidget {
+class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
+
+  @override
+  ConsumerState<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends ConsumerState<ProfileScreen> {
+  String? _localSelfiePath;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadLocalSelfie();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(providerProfileProvider.notifier).fetchProfile();
+    });
+  }
+
+  Future<void> _loadLocalSelfie() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedPath = prefs.getString('local_selfie_path');
+      if (savedPath != null && File(savedPath).existsSync()) {
+        setState(() {
+          _localSelfiePath = savedPath;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading local selfie path: $e');
+    }
+  }
+
+  ImageProvider? _resolveProfileImageProvider(String? remoteOrLocalPath) {
+    // 1. Try local selfie file if it exists
+    if (_localSelfiePath != null && _localSelfiePath!.isNotEmpty) {
+      final file = File(_localSelfiePath!);
+      if (file.existsSync()) {
+        return FileImage(file);
+      }
+    }
+
+    if (remoteOrLocalPath == null || remoteOrLocalPath.trim().isEmpty) {
+      return null;
+    }
+
+    final pathStr = remoteOrLocalPath.trim();
+
+    // 2. Try file path
+    if (pathStr.startsWith('/') || pathStr.startsWith('file:') || (pathStr.length > 3 && pathStr[1] == ':')) {
+      final cleanPath = pathStr.replaceFirst('file://', '');
+      final file = File(cleanPath);
+      if (file.existsSync()) {
+        return FileImage(file);
+      }
+    }
+
+    // 3. Try Base64 string
+    if (pathStr.startsWith('data:image/') || pathStr.startsWith('data:;base64,')) {
+      try {
+        final base64Content = pathStr.split(',').last;
+        final bytes = base64Decode(base64Content);
+        return MemoryImage(bytes);
+      } catch (_) {}
+    } else if (!pathStr.startsWith('http://') && !pathStr.startsWith('https://') && pathStr.length > 100) {
+      try {
+        final bytes = base64Decode(pathStr);
+        return MemoryImage(bytes);
+      } catch (_) {}
+    }
+
+    // 4. Try Network URL
+    if (pathStr.startsWith('http://') || pathStr.startsWith('https://')) {
+      return NetworkImage(pathStr);
+    }
+
+    return null;
+  }
 
   Widget _buildTopBar() {
     return const Padding(
@@ -28,14 +108,38 @@ class ProfileScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildProfileCard(WidgetRef ref) {
+  Widget _buildProfileCard() {
     final authState = ref.watch(authProvider);
+    final profileState = ref.watch(providerProfileProvider);
     final dispatchState = ref.watch(jobDispatchProvider);
+
     final user = authState.user;
-    final name = user?.name ?? 'Partner';
-    final email = user?.email ?? '';
-    final phone = user?.phone ?? '';
-    final profileImage = user?.profileImage;
+    final profileData = profileState.profileData;
+
+    final name = (user?.name != null && user!.name!.isNotEmpty)
+        ? user.name!
+        : (profileData?['name'] != null && profileData!['name'].toString().isNotEmpty)
+            ? profileData!['name'].toString()
+            : 'Partner';
+
+    final email = (user?.email != null && user!.email!.isNotEmpty)
+        ? user.email!
+        : (profileData?['email'] != null)
+            ? profileData!['email'].toString()
+            : '';
+
+    final phone = (user?.phone != null && user!.phone!.isNotEmpty)
+        ? user.phone!
+        : (profileData?['phone'] != null)
+            ? profileData!['phone'].toString()
+            : '';
+
+    final rawImage = user?.profileImage ??
+        profileData?['user_id']?['profile_image']?.toString() ??
+        profileData?['profile_image']?.toString() ??
+        profileData?['verification_docs']?['id_proof_url']?.toString();
+
+    final imageProvider = _resolveProfileImageProvider(rawImage);
     final isOnline = dispatchState.isOnline;
 
     return Padding(
@@ -61,12 +165,15 @@ class ProfileScreen extends ConsumerWidget {
               children: [
                 CircleAvatar(
                   radius: 46,
-                  backgroundImage: (profileImage != null && profileImage.isNotEmpty)
-                      ? NetworkImage(profileImage)
-                      : const NetworkImage(
-                          'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150',
-                        ) as ImageProvider,
                   backgroundColor: const Color(0xFFEFF1FE),
+                  backgroundImage: imageProvider,
+                  child: imageProvider == null
+                      ? const Icon(
+                          Icons.person,
+                          size: 46,
+                          color: Color(0xFF16155D),
+                        )
+                      : null,
                 ),
                 const SizedBox(height: 12),
                 Container(
@@ -363,7 +470,7 @@ class ProfileScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildAccountGroup(BuildContext context, WidgetRef ref) {
+  Widget _buildAccountGroup(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 8.0),
       child: Container(
@@ -417,7 +524,7 @@ class ProfileScreen extends ConsumerWidget {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -427,11 +534,11 @@ class ProfileScreen extends ConsumerWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _buildProfileCard(ref),
+                _buildProfileCard(),
                 _buildSectionHeader('MY ACTIVITY'),
                 _buildActivityGroup(context),
                 _buildSectionHeader('ACCOUNT'),
-                _buildAccountGroup(context, ref),
+                _buildAccountGroup(context),
                 const SizedBox(height: 32),
               ],
             ),

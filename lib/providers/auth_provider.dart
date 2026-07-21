@@ -293,7 +293,10 @@ class AuthNotifier extends StateNotifier<AuthState> {
       }
       return false;
     } on DioException catch (e) {
-      print('=== AuthNotifier: updateProfileImage exception: $e ===');
+      print('=== AuthNotifier: updateProfileImage exception: status=${e.response?.statusCode}, data=${e.response?.data}, error=${e.message} ===');
+      state = state.copyWith(
+        errorMessage: e.response?.data['message'] ?? 'Failed to upload selfie profile picture',
+      );
       return false;
     }
   }

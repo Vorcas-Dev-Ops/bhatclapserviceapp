@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:partner_app/providers/catalog_provider.dart';
 import 'package:partner_app/providers/provider_profile_provider.dart';
-import 'package:partner_app/screens/auth/identity_verification_screen.dart';
+import 'package:partner_app/screens/auth/select_service_location_screen.dart';
 
 class SelectSubCategoriesScreen extends ConsumerStatefulWidget {
   final List<dynamic> selectedCategories;
@@ -190,7 +190,7 @@ class _SelectSubCategoriesScreenState extends ConsumerState<SelectSubCategoriesS
                                   Navigator.push(
                                     context,
                                     MaterialPageRoute(
-                                      builder: (context) => const IdentityVerificationScreen(),
+                                      builder: (context) => const SelectServiceLocationScreen(),
                                     ),
                                   );
                                 } else if (mounted) {

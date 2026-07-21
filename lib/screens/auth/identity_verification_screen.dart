@@ -9,6 +9,9 @@ import 'package:cunning_document_scanner/cunning_document_scanner.dart';
 import 'package:partner_app/providers/provider_profile_provider.dart';
 import 'package:partner_app/providers/auth_provider.dart';
 import 'package:partner_app/screens/auth/bank_details_screen.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:partner_app/services/token_storage.dart';
 
 class IdentityVerificationScreen extends ConsumerStatefulWidget {
   final bool fromProfile;
@@ -25,6 +28,46 @@ class _IdentityVerificationScreenState extends ConsumerState<IdentityVerificatio
   String? _panFrontPath;
   String? _panBackPath;
 
+  @override
+  void initState() {
+    super.initState();
+    _loadSavedDocuments();
+  }
+
+  Future<void> _loadSavedDocuments() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      setState(() {
+        _selfiePath = prefs.getString('local_selfie_path');
+        _aadhaarFrontPath = prefs.getString('local_aadhaar_front_path');
+        _aadhaarBackPath = prefs.getString('local_aadhaar_back_path');
+        _panFrontPath = prefs.getString('local_pan_front_path');
+        _panBackPath = prefs.getString('local_pan_back_path');
+      });
+    } catch (e) {
+      debugPrint('Error loading saved documents: $e');
+    }
+  }
+
+  Future<String?> _saveSingleDocumentLocally(String tempPath, String prefKey, String prefix) async {
+    try {
+      final directory = await getApplicationDocumentsDirectory();
+      final prefs = await SharedPreferences.getInstance();
+
+      final tempFile = File(tempPath);
+      if (await tempFile.exists()) {
+        final extension = tempPath.split('.').last;
+        final localFile = File('${directory.path}/${prefix}_${DateTime.now().millisecondsSinceEpoch}.$extension');
+        await tempFile.copy(localFile.path);
+        await prefs.setString(prefKey, localFile.path);
+        return localFile.path;
+      }
+    } catch (e) {
+      debugPrint('Error saving single document locally: $e');
+    }
+    return null;
+  }
+
   Future<void> _takeSelfie() async {
     final status = await Permission.camera.request();
     if (status.isGranted) {
@@ -32,10 +75,14 @@ class _IdentityVerificationScreenState extends ConsumerState<IdentityVerificatio
       final XFile? photo = await picker.pickImage(
         source: ImageSource.camera,
         preferredCameraDevice: CameraDevice.front,
+        maxWidth: 400,
+        maxHeight: 400,
+        imageQuality: 40,
       );
       if (photo != null) {
+        final savedPath = await _saveSingleDocumentLocally(photo.path, 'local_selfie_path', 'selfie');
         setState(() {
-          _selfiePath = photo.path;
+          _selfiePath = savedPath ?? photo.path;
         });
       }
     } else {
@@ -55,8 +102,9 @@ class _IdentityVerificationScreenState extends ConsumerState<IdentityVerificatio
           androidScannerMode: AndroidScannerMode.base,
         );
         if (pictures != null && pictures.isNotEmpty) {
+          final savedPath = await _saveSingleDocumentLocally(pictures.first, 'local_aadhaar_front_path', 'aadhaar_front');
           setState(() {
-            _aadhaarFrontPath = pictures.first;
+            _aadhaarFrontPath = savedPath ?? pictures.first;
           });
         }
       } catch (e) {
@@ -83,8 +131,9 @@ class _IdentityVerificationScreenState extends ConsumerState<IdentityVerificatio
           androidScannerMode: AndroidScannerMode.base,
         );
         if (pictures != null && pictures.isNotEmpty) {
+          final savedPath = await _saveSingleDocumentLocally(pictures.first, 'local_aadhaar_back_path', 'aadhaar_back');
           setState(() {
-            _aadhaarBackPath = pictures.first;
+            _aadhaarBackPath = savedPath ?? pictures.first;
           });
         }
       } catch (e) {
@@ -111,8 +160,9 @@ class _IdentityVerificationScreenState extends ConsumerState<IdentityVerificatio
           androidScannerMode: AndroidScannerMode.base,
         );
         if (pictures != null && pictures.isNotEmpty) {
+          final savedPath = await _saveSingleDocumentLocally(pictures.first, 'local_pan_front_path', 'pan_front');
           setState(() {
-            _panFrontPath = pictures.first;
+            _panFrontPath = savedPath ?? pictures.first;
           });
         }
       } catch (e) {
@@ -139,8 +189,9 @@ class _IdentityVerificationScreenState extends ConsumerState<IdentityVerificatio
           androidScannerMode: AndroidScannerMode.base,
         );
         if (pictures != null && pictures.isNotEmpty) {
+          final savedPath = await _saveSingleDocumentLocally(pictures.first, 'local_pan_back_path', 'pan_back');
           setState(() {
-            _panBackPath = pictures.first;
+            _panBackPath = savedPath ?? pictures.first;
           });
         }
       } catch (e) {
@@ -157,6 +208,199 @@ class _IdentityVerificationScreenState extends ConsumerState<IdentityVerificatio
         );
       }
     }
+  }
+
+  Future<void> _pickFromGallery(String prefKey, String prefix, Function(String) onSaved) async {
+    try {
+      final ImagePicker picker = ImagePicker();
+      final XFile? photo = await picker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1200,
+        maxHeight: 1200,
+        imageQuality: 80,
+      );
+      if (photo != null) {
+        final savedPath = await _saveSingleDocumentLocally(photo.path, prefKey, prefix);
+        setState(() {
+          onSaved(savedPath ?? photo.path);
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error selecting file: $e')),
+        );
+      }
+    }
+  }
+
+  void _showUploadOptions({
+    required String documentTitle,
+    required String scanOptionTitle,
+    required String scanOptionSubtitle,
+    required IconData scanIcon,
+    required VoidCallback onScan,
+    required VoidCallback onPickGallery,
+  }) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Upload $documentTitle',
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF16155D),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  'Choose how you would like to provide this document',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Colors.black45,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                InkWell(
+                  onTap: () {
+                    Navigator.pop(context);
+                    onScan();
+                  },
+                  borderRadius: BorderRadius.circular(16),
+                  child: Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF5F6FA),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: const Color(0xFFE5E7EB)),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF16155D).withAlpha(20),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            scanIcon,
+                            color: const Color(0xFF16155D),
+                            size: 24,
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                scanOptionTitle,
+                                style: const TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF16155D),
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                scanOptionSubtitle,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.black45,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const Icon(Icons.chevron_right, color: Colors.black38),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                InkWell(
+                  onTap: () {
+                    Navigator.pop(context);
+                    onPickGallery();
+                  },
+                  borderRadius: BorderRadius.circular(16),
+                  child: Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF5F6FA),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: const Color(0xFFE5E7EB)),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF16155D).withAlpha(20),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.photo_library_outlined,
+                            color: Color(0xFF16155D),
+                            size: 24,
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Upload from Device',
+                                style: TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF16155D),
+                                ),
+                              ),
+                              SizedBox(height: 2),
+                              Text(
+                                'Select photo or image from gallery/device',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.black45,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const Icon(Icons.chevron_right, color: Colors.black38),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   Widget _buildDashedContainer({required double height, required Widget child}) {
@@ -190,14 +434,30 @@ class _IdentityVerificationScreenState extends ConsumerState<IdentityVerificatio
         child: _buildDashedContainer(
           height: 110,
           child: imagePath != null
-              ? ClipRRect(
-                  borderRadius: BorderRadius.circular(16),
-                  child: Image.file(
-                    File(imagePath),
-                    fit: BoxFit.cover,
-                    width: double.infinity,
-                    height: 110,
-                  ),
+              ? Stack(
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(16),
+                      child: Image.file(
+                        File(imagePath),
+                        fit: BoxFit.cover,
+                        width: double.infinity,
+                        height: 110,
+                      ),
+                    ),
+                    Positioned(
+                      top: 6,
+                      right: 6,
+                      child: Container(
+                        padding: const EdgeInsets.all(5),
+                        decoration: const BoxDecoration(
+                          color: Color(0xFF16155D),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.edit, color: Colors.white, size: 14),
+                      ),
+                    ),
+                  ],
                 )
               : Column(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -245,18 +505,47 @@ class _IdentityVerificationScreenState extends ConsumerState<IdentityVerificatio
         ),
         const SizedBox(height: 12),
         GestureDetector(
-          onTap: _takeSelfie,
+          onTap: () {
+            _showUploadOptions(
+              documentTitle: 'Selfie Verification',
+              scanOptionTitle: 'Take Selfie Photo',
+              scanOptionSubtitle: 'Use front camera to capture photo',
+              scanIcon: Icons.camera_front_outlined,
+              onScan: _takeSelfie,
+              onPickGallery: () => _pickFromGallery(
+                'local_selfie_path',
+                'selfie',
+                (path) => _selfiePath = path,
+              ),
+            );
+          },
           child: _buildDashedContainer(
             height: 100,
             child: _selfiePath != null
-                ? ClipRRect(
-                    borderRadius: BorderRadius.circular(16),
-                    child: Image.file(
-                      File(_selfiePath!),
-                      fit: BoxFit.cover,
-                      width: double.infinity,
-                      height: 100,
-                    ),
+                ? Stack(
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(16),
+                        child: Image.file(
+                          File(_selfiePath!),
+                          fit: BoxFit.cover,
+                          width: double.infinity,
+                          height: 100,
+                        ),
+                      ),
+                      Positioned(
+                        top: 6,
+                        right: 6,
+                        child: Container(
+                          padding: const EdgeInsets.all(5),
+                          decoration: const BoxDecoration(
+                            color: Color(0xFF16155D),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(Icons.edit, color: Colors.white, size: 14),
+                        ),
+                      ),
+                    ],
                   )
                 : const Column(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -309,13 +598,39 @@ class _IdentityVerificationScreenState extends ConsumerState<IdentityVerificatio
             _buildCardSideUpload(
               title: 'Front Side',
               imagePath: _aadhaarFrontPath,
-              onTap: _scanAadhaarFront,
+              onTap: () {
+                _showUploadOptions(
+                  documentTitle: 'Aadhaar Front Side',
+                  scanOptionTitle: 'Scan Document',
+                  scanOptionSubtitle: 'Use camera scanner with auto-crop',
+                  scanIcon: Icons.document_scanner_outlined,
+                  onScan: _scanAadhaarFront,
+                  onPickGallery: () => _pickFromGallery(
+                    'local_aadhaar_front_path',
+                    'aadhaar_front',
+                    (path) => _aadhaarFrontPath = path,
+                  ),
+                );
+              },
             ),
             const SizedBox(width: 12),
             _buildCardSideUpload(
               title: 'Back Side',
               imagePath: _aadhaarBackPath,
-              onTap: _scanAadhaarBack,
+              onTap: () {
+                _showUploadOptions(
+                  documentTitle: 'Aadhaar Back Side',
+                  scanOptionTitle: 'Scan Document',
+                  scanOptionSubtitle: 'Use camera scanner with auto-crop',
+                  scanIcon: Icons.document_scanner_outlined,
+                  onScan: _scanAadhaarBack,
+                  onPickGallery: () => _pickFromGallery(
+                    'local_aadhaar_back_path',
+                    'aadhaar_back',
+                    (path) => _aadhaarBackPath = path,
+                  ),
+                );
+              },
             ),
           ],
         ),
@@ -349,13 +664,39 @@ class _IdentityVerificationScreenState extends ConsumerState<IdentityVerificatio
             _buildCardSideUpload(
               title: 'Front Side',
               imagePath: _panFrontPath,
-              onTap: _scanPanFront,
+              onTap: () {
+                _showUploadOptions(
+                  documentTitle: 'PAN Front Side',
+                  scanOptionTitle: 'Scan Document',
+                  scanOptionSubtitle: 'Use camera scanner with auto-crop',
+                  scanIcon: Icons.document_scanner_outlined,
+                  onScan: _scanPanFront,
+                  onPickGallery: () => _pickFromGallery(
+                    'local_pan_front_path',
+                    'pan_front',
+                    (path) => _panFrontPath = path,
+                  ),
+                );
+              },
             ),
             const SizedBox(width: 12),
             _buildCardSideUpload(
               title: 'Back Side',
               imagePath: _panBackPath,
-              onTap: _scanPanBack,
+              onTap: () {
+                _showUploadOptions(
+                  documentTitle: 'PAN Back Side',
+                  scanOptionTitle: 'Scan Document',
+                  scanOptionSubtitle: 'Use camera scanner with auto-crop',
+                  scanIcon: Icons.document_scanner_outlined,
+                  onScan: _scanPanBack,
+                  onPickGallery: () => _pickFromGallery(
+                    'local_pan_back_path',
+                    'pan_back',
+                    (path) => _panBackPath = path,
+                  ),
+                );
+              },
             ),
           ],
         ),
@@ -501,26 +842,25 @@ class _IdentityVerificationScreenState extends ConsumerState<IdentityVerificatio
                                       return;
                                     }
 
+                                    final messenger = ScaffoldMessenger.of(context);
+                                    final navigator = Navigator.of(context);
+
                                     // 1. Process Selfie image and upload as Profile Image
                                     final selfieBytes = await File(_selfiePath!).readAsBytes();
-                                    final base64Selfie = 'data:image/png;base64,${base64Encode(selfieBytes)}';
+                                    final selfieMime = _selfiePath!.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
+                                    final base64Selfie = 'data:$selfieMime;base64,${base64Encode(selfieBytes)}';
 
                                     final selfieSuccess = await ref
                                         .read(authProvider.notifier)
                                         .updateProfileImage(base64Selfie);
 
-                                    if (!selfieSuccess) {
-                                      if (mounted) {
-                                        ScaffoldMessenger.of(context).showSnackBar(
-                                          const SnackBar(content: Text('Failed to upload selfie profile picture.')),
-                                        );
-                                      }
-                                      return;
-                                    }
-
                                     // 2. Process Aadhaar front image and upload as Document Image
                                     final frontBytes = await File(_aadhaarFrontPath!).readAsBytes();
-                                    final base64Doc = 'data:image/png;base64,${base64Encode(frontBytes)}';
+                                    final frontMime = _aadhaarFrontPath!.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
+                                    final base64Doc = 'data:$frontMime;base64,${base64Encode(frontBytes)}';
+                                    await TokenStorage().saveIdProofUrl(base64Doc);
+
+                                    final isAlreadyVerified = ref.read(providerProfileProvider).profileData?['kyc_status'] == 'verified';
 
                                     final success = await ref
                                         .read(providerProfileProvider.notifier)
@@ -531,22 +871,21 @@ class _IdentityVerificationScreenState extends ConsumerState<IdentityVerificatio
                                           },
                                         );
 
-                                    if (success && mounted) {
+                                    if ((success || isAlreadyVerified) && mounted) {
                                       if (widget.fromProfile) {
-                                        Navigator.pop(context);
-                                        ScaffoldMessenger.of(context).showSnackBar(
+                                        navigator.pop();
+                                        messenger.showSnackBar(
                                           const SnackBar(content: Text('Identity documents submitted successfully.')),
                                         );
                                       } else {
-                                        Navigator.push(
-                                          context,
+                                        navigator.push(
                                           MaterialPageRoute(
                                             builder: (context) => const BankDetailsScreen(),
                                           ),
                                         );
                                       }
                                     } else if (mounted) {
-                                      ScaffoldMessenger.of(context).showSnackBar(
+                                      messenger.showSnackBar(
                                         SnackBar(
                                           content: Text(
                                             ref.read(providerProfileProvider).errorMessage ?? 'Failed to submit identity docs',

@@ -243,6 +243,20 @@ class _JobsScreenState extends ConsumerState<JobsScreen> {
     );
   }
 
+  String _formatDateString(String rawDate) {
+    if (rawDate.isEmpty) return '';
+    try {
+      final dt = DateTime.tryParse(rawDate);
+      if (dt != null) {
+        return '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
+      }
+    } catch (_) {}
+    if (rawDate.contains('T')) {
+      return rawDate.split('T').first;
+    }
+    return rawDate;
+  }
+
   Widget _buildJobCard({
     required String title,
     required String earnings,
@@ -254,6 +268,7 @@ class _JobsScreenState extends ConsumerState<JobsScreen> {
     Widget? footerSection,
     required double cardHeight,
   }) {
+    final formattedDate = _formatDateString(date);
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       decoration: BoxDecoration(
@@ -272,90 +287,102 @@ class _JobsScreenState extends ConsumerState<JobsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                // Blue accent left bar
-                Container(
-                  width: 4,
-                  height: cardHeight,
-                  color: const Color(0xFF16155D),
-                ),
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
+            IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // Blue accent left bar
+                  Container(
+                    width: 4,
+                    color: const Color(0xFF16155D),
+                  ),
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      title,
+                                      style: const TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold,
+                                        color: Color(0xFF1C1F3E),
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      location,
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.black38,
+                                      ),
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  Text(
+                                    earnings,
+                                    style: const TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.bold,
+                                      color: Color(0xFF16155D),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  const Text(
+                                    'Earnings',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: Colors.black38,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          // Time Chips Row
+                          SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: Row(
                               children: [
-                                Text(
-                                  title,
-                                  style: const TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
-                                    color: Color(0xFF1C1F3E),
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  location,
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.black38,
-                                  ),
-                                ),
+                                _buildTimeChip(Icons.calendar_today_outlined, formattedDate),
+                                const SizedBox(width: 8),
+                                _buildTimeChip(Icons.access_time_outlined, time),
+                                const SizedBox(width: 8),
+                                _buildTimeChip(Icons.history_toggle_off_outlined, duration),
                               ],
                             ),
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.end,
-                              children: [
-                                Text(
-                                  earnings,
-                                  style: const TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold,
-                                    color: Color(0xFF16155D),
-                                  ),
-                                ),
-                                const SizedBox(height: 2),
-                                const Text(
-                                  'Earnings',
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    color: Colors.black38,
-                                  ),
-                                ),
-                              ],
-                            ),
+                          ),
+                          if (actionSection != null) ...[
+                            const SizedBox(height: 16),
+                            actionSection,
                           ],
-                        ),
-                        const SizedBox(height: 12),
-                        // Time Chips Row
-                        Row(
-                          children: [
-                            _buildTimeChip(Icons.calendar_today_outlined, date),
-                            const SizedBox(width: 8),
-                            _buildTimeChip(Icons.access_time_outlined, time),
-                            const SizedBox(width: 8),
-                            _buildTimeChip(Icons.history_toggle_off_outlined, duration),
-                          ],
-                        ),
-                        if (actionSection != null) ...[
-                          const SizedBox(height: 16),
-                          actionSection,
                         ],
-                      ],
+                      ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-            footerSection ?? const SizedBox.shrink(),
+            if (footerSection != null) footerSection,
           ],
         ),
       ),

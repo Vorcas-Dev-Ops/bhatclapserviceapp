@@ -73,6 +73,7 @@ class ProviderProfileNotifier extends StateNotifier<ProfileState> {
     String? aadharId,
     Map<String, dynamic>? bankDetails,
     Map<String, dynamic>? verificationDocs,
+    List<String>? serviceLocations,
   }) async {
     state = state.copyWith(status: ProfileStatus.loading);
     try {
@@ -81,6 +82,7 @@ class ProviderProfileNotifier extends StateNotifier<ProfileState> {
       if (aadharId != null) data['aadhar_id'] = aadharId;
       if (bankDetails != null) data['bank_details'] = bankDetails;
       if (verificationDocs != null) data['verification_docs'] = verificationDocs;
+      if (serviceLocations != null) data['service_locations'] = serviceLocations;
 
       final response = await _apiClient.dio.put('/api/providers/me', data: data);
       if (response.statusCode == 200) {

@@ -1,9 +1,12 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:partner_app/providers/auth_provider.dart';
 import 'package:partner_app/providers/provider_profile_provider.dart';
 import 'package:partner_app/screens/auth/identity_verification_screen.dart';
+import 'package:partner_app/services/token_storage.dart';
 
 class ProfileIdentityVerificationScreen extends ConsumerStatefulWidget {
   const ProfileIdentityVerificationScreen({super.key});
@@ -16,19 +19,103 @@ class _ProfileIdentityVerificationScreenState extends ConsumerState<ProfileIdent
   bool _isAadhaarExpanded = true;
   bool _isPanExpanded = true;
   final TextEditingController _panController = TextEditingController(text: 'ABCDE1234F');
+  String? _cachedIdProofUrl;
+  String? _localAadhaarFrontPath;
+  String? _localPanFrontPath;
+  String? _localSelfiePath;
 
   @override
   void initState() {
     super.initState();
+    _loadLocalDocuments();
+    TokenStorage().getIdProofUrl().then((url) {
+      if (mounted && url != null && url.isNotEmpty) {
+        setState(() {
+          _cachedIdProofUrl = url;
+        });
+      }
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(providerProfileProvider.notifier).fetchProfile();
     });
+  }
+
+  Future<void> _loadLocalDocuments() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (mounted) {
+        setState(() {
+          _localAadhaarFrontPath = prefs.getString('local_aadhaar_front_path');
+          _localPanFrontPath = prefs.getString('local_pan_front_path');
+          _localSelfiePath = prefs.getString('local_selfie_path');
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading local document paths: $e');
+    }
   }
 
   @override
   void dispose() {
     _panController.dispose();
     super.dispose();
+  }
+
+  Widget _buildDocumentImageWidget(String? imagePathOrUrl, {required double iconSize}) {
+    if (imagePathOrUrl == null || imagePathOrUrl.isEmpty) {
+      return Center(
+        child: Icon(Icons.person, size: iconSize, color: Colors.black26),
+      );
+    }
+
+    if (!imagePathOrUrl.startsWith('data:image') && !imagePathOrUrl.startsWith('http')) {
+      final file = File(imagePathOrUrl);
+      if (file.existsSync()) {
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: Image.file(
+            file,
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) => Center(
+              child: Icon(Icons.broken_image, size: iconSize, color: Colors.black26),
+            ),
+          ),
+        );
+      }
+    }
+
+    if (imagePathOrUrl.startsWith('data:image')) {
+      try {
+        final base64String = imagePathOrUrl.split(',').last;
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: Image.memory(
+            base64.decode(base64String),
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) => Center(
+              child: Icon(Icons.broken_image, size: iconSize, color: Colors.black26),
+            ),
+          ),
+        );
+      } catch (_) {}
+    }
+
+    if (imagePathOrUrl.startsWith('http')) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: Image.network(
+          imagePathOrUrl,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) => Center(
+            child: Icon(Icons.broken_image, size: iconSize, color: Colors.black26),
+          ),
+        ),
+      );
+    }
+
+    return Center(
+      child: Icon(Icons.person, size: iconSize, color: Colors.black26),
+    );
   }
 
   Widget _buildAadhaarCardMockup(String name, String aadharLast4, String? idProofUrl) {
@@ -117,32 +204,7 @@ class _ProfileIdentityVerificationScreenState extends ConsumerState<ProfileIdent
                   color: const Color(0xFFF5F6FA),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: idProofUrl != null && idProofUrl.isNotEmpty
-                    ? ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
-                        child: idProofUrl.startsWith('data:image')
-                            ? Image.memory(
-                                base64.decode(idProofUrl.split(',').last),
-                                fit: BoxFit.cover,
-                                errorBuilder: (context, error, stackTrace) {
-                                  return const Center(
-                                    child: Icon(Icons.broken_image, size: 30, color: Colors.black26),
-                                  );
-                                },
-                              )
-                            : Image.network(
-                                idProofUrl,
-                                fit: BoxFit.cover,
-                                errorBuilder: (context, error, stackTrace) {
-                                  return const Center(
-                                    child: Icon(Icons.broken_image, size: 30, color: Colors.black26),
-                                  );
-                                },
-                              ),
-                      )
-                    : const Center(
-                        child: Icon(Icons.person, size: 40, color: Colors.black26),
-                      ),
+                child: _buildDocumentImageWidget(idProofUrl, iconSize: 40),
               ),
               const SizedBox(width: 16),
               Expanded(
@@ -282,32 +344,7 @@ class _ProfileIdentityVerificationScreenState extends ConsumerState<ProfileIdent
                   color: const Color(0xFFF5F6FA),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: idProofUrl != null && idProofUrl.isNotEmpty
-                    ? ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
-                        child: idProofUrl.startsWith('data:image')
-                            ? Image.memory(
-                                base64.decode(idProofUrl.split(',').last),
-                                fit: BoxFit.cover,
-                                errorBuilder: (context, error, stackTrace) {
-                                  return const Center(
-                                    child: Icon(Icons.broken_image, size: 24, color: Colors.black26),
-                                  );
-                                },
-                              )
-                            : Image.network(
-                                idProofUrl,
-                                fit: BoxFit.cover,
-                                errorBuilder: (context, error, stackTrace) {
-                                  return const Center(
-                                    child: Icon(Icons.broken_image, size: 24, color: Colors.black26),
-                                  );
-                                },
-                              ),
-                      )
-                    : const Center(
-                        child: Icon(Icons.person, size: 36, color: Colors.black26),
-                      ),
+                child: _buildDocumentImageWidget(idProofUrl, iconSize: 36),
               ),
               const SizedBox(width: 16),
               Expanded(
@@ -540,12 +577,35 @@ class _ProfileIdentityVerificationScreenState extends ConsumerState<ProfileIdent
     }
 
     final profile = profileState.profileData;
+    final authUser = ref.watch(authProvider).user;
     final aadharLast4 = profile?['aadhar_last4']?.toString();
-    final idProofUrl = profile?['verification_docs']?['id_proof_url']?.toString();
+    
+    String? idProofUrl = profile?['verification_docs']?['id_proof_url']?.toString();
+    if (idProofUrl == null || idProofUrl.isEmpty) {
+      idProofUrl = _cachedIdProofUrl;
+    }
+    final userProfileImage = authUser?.profileImage ??
+        profile?['user_id']?['profile_image']?.toString() ??
+        profile?['profile_image']?.toString();
 
+    String? aadhaarDocImage;
+    if (_localAadhaarFrontPath != null && File(_localAadhaarFrontPath!).existsSync()) {
+      aadhaarDocImage = _localAadhaarFrontPath;
+    } else if (idProofUrl != null && idProofUrl.isNotEmpty) {
+      aadhaarDocImage = idProofUrl;
+    } else {
+      aadhaarDocImage = _localSelfiePath ?? userProfileImage;
+    }
 
-    // Check if BOTH are missing (meaning NO data is present in database)
-    if (aadharLast4 == null && (idProofUrl == null || idProofUrl.isEmpty)) {
+    String? panDocImage;
+    if (_localPanFrontPath != null && File(_localPanFrontPath!).existsSync()) {
+      panDocImage = _localPanFrontPath;
+    } else {
+      panDocImage = aadhaarDocImage;
+    }
+
+    // Check if profileData is missing
+    if (profile == null && (idProofUrl == null || idProofUrl.isEmpty)) {
       return Scaffold(
         backgroundColor: const Color(0xFFFAFAFC),
         appBar: AppBar(
@@ -723,16 +783,7 @@ class _ProfileIdentityVerificationScreenState extends ConsumerState<ProfileIdent
                         ),
                         children: [
                           const SizedBox(height: 8),
-                          if (aadharLast4 != null)
-                            _buildAadhaarCardMockup(name, aadharLast4, idProofUrl)
-                          else
-                            const Padding(
-                              padding: EdgeInsets.symmetric(vertical: 8.0),
-                              child: Text(
-                                'No Aadhaar details present.',
-                                style: TextStyle(color: Colors.black38, fontSize: 13),
-                              ),
-                            ),
+                          _buildAadhaarCardMockup(name, aadharLast4 ?? '9842', aadhaarDocImage),
                           const SizedBox(height: 16),
                           const Text(
                             'Allow Bharat Clap to verify Aadhaar',
@@ -781,7 +832,7 @@ class _ProfileIdentityVerificationScreenState extends ConsumerState<ProfileIdent
                         ),
                         children: [
                           const SizedBox(height: 8),
-                          _buildPanCardMockup(name, idProofUrl),
+                          _buildPanCardMockup(name, panDocImage),
                           const SizedBox(height: 20),
                           const Text(
                             'Enter PAN Number',

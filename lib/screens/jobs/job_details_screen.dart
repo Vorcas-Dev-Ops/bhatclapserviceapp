@@ -220,11 +220,27 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
     );
   }
 
+  String _formatDateVal(dynamic rawDate) {
+    if (rawDate == null) return 'Today';
+    final str = rawDate.toString();
+    if (str.isEmpty) return 'Today';
+    try {
+      final dt = DateTime.tryParse(str);
+      if (dt != null) {
+        return '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
+      }
+    } catch (_) {}
+    if (str.contains('T')) {
+      return str.split('T').first;
+    }
+    return str;
+  }
+
   Widget _buildStep0ArrivedView() {
     final address = widget.booking['address_id'] ?? {};
     final addressLine = address['address_line'] ?? 'No 48, 5th Cross, Hennur Rd';
     final city = address['city'] ?? 'Bengaluru';
-    final dateVal = widget.booking['scheduled_at'] ?? 'Today';
+    final dateVal = _formatDateVal(widget.booking['scheduled_at']);
     final timeVal = widget.booking['booking_time'] ?? 'Now';
     
     final user = widget.booking['user_id'] ?? {};
@@ -372,56 +388,65 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
                             child: Row(
                               children: [
                                 _buildCircularIcon(Icons.calendar_today_outlined),
-                                const SizedBox(width: 12),
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Text(
-                                      'Date',
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        color: Colors.black38,
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Text(
+                                        'Date',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: Colors.black38,
+                                        ),
                                       ),
-                                    ),
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      dateVal,
-                                      style: const TextStyle(
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.bold,
-                                        color: Color(0xFF1C1F3E),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        dateVal,
+                                        style: const TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.bold,
+                                          color: Color(0xFF1C1F3E),
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
                                       ),
-                                    ),
-                                  ],
+                                    ],
+                                  ),
                                 ),
                               ],
                             ),
                           ),
+                          const SizedBox(width: 8),
                           Expanded(
                             child: Row(
                               children: [
                                 _buildCircularIcon(Icons.access_time_outlined),
-                                const SizedBox(width: 12),
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Text(
-                                      'Time',
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        color: Colors.black38,
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Text(
+                                        'Time',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: Colors.black38,
+                                        ),
                                       ),
-                                    ),
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      timeVal,
-                                      style: const TextStyle(
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.bold,
-                                        color: Color(0xFF1C1F3E),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        timeVal,
+                                        style: const TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.bold,
+                                          color: Color(0xFF1C1F3E),
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
                                       ),
-                                    ),
-                                  ],
+                                    ],
+                                  ),
                                 ),
                               ],
                             ),

@@ -294,7 +294,7 @@ class InsuranceScreen extends ConsumerWidget {
                 _buildTopBar(context),
                 Expanded(
                   child: SingleChildScrollView(
-                    padding: const EdgeInsets.only(bottom: 100),
+                    padding: const EdgeInsets.only(bottom: 24),
                     child: Column(
                       children: [
                         _buildPolicyStatusCard(ref),
@@ -306,7 +306,6 @@ class InsuranceScreen extends ConsumerWidget {
                 ),
               ],
             ),
-            _buildBottomStickyBar(),
           ],
         ),
       ),

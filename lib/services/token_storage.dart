@@ -36,10 +36,21 @@ class TokenStorage {
     return await _storage.read(key: _keyUserRole);
   }
 
+  static const _keyIdProofUrl = 'id_proof_url';
+
+  Future<void> saveIdProofUrl(String idProofUrl) async {
+    await _storage.write(key: _keyIdProofUrl, value: idProofUrl);
+  }
+
+  Future<String?> getIdProofUrl() async {
+    return await _storage.read(key: _keyIdProofUrl);
+  }
+
   Future<void> clear() async {
     await _storage.delete(key: _keyAccessToken);
     await _storage.delete(key: _keyRefreshToken);
     await _storage.delete(key: _keyUserId);
     await _storage.delete(key: _keyUserRole);
+    await _storage.delete(key: _keyIdProofUrl);
   }
 }

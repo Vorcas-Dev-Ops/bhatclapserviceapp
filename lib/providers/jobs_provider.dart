@@ -47,14 +47,23 @@ class JobsNotifier extends StateNotifier<JobsState> {
   Future<void> fetchAllJobs() async {
     state = state.copyWith(status: JobsStatus.loading);
     try {
+      print('Fetching jobs...');
       // 1. Fetch pending job requests (New)
       final reqResponse = await _apiClient.dio.get('/api/providers/job-requests');
+      print('reqResponse.statusCode: ${reqResponse.statusCode}');
+      print('reqResponse.data: ${reqResponse.data}');
       List<JobRequestModel> newJobsList = [];
       if (reqResponse.statusCode == 200 && reqResponse.data is List) {
         newJobsList = (reqResponse.data as List)
-            .map((item) => JobRequestModel.fromJson(item))
+            .map((item) {
+              print('Parsing item: $item');
+              return JobRequestModel.fromJson(item);
+            })
             .toList();
+      } else {
+        print('reqResponse.data is NOT a List. It is: ${reqResponse.data.runtimeType}');
       }
+      print('newJobsList: $newJobsList');
 
       // 2. Fetch my bookings (Upcoming, Ongoing, Completed)
       final bookingsResponse = await _apiClient.dio.get('/api/bookings/my');
@@ -75,6 +84,12 @@ class JobsNotifier extends StateNotifier<JobsState> {
       state = state.copyWith(
         status: JobsStatus.error,
         errorMessage: e.response?.data['message'] ?? 'Failed to retrieve jobs list',
+      );
+    } catch (e, stack) {
+      print('Error parsing jobs: $e\n$stack');
+      state = state.copyWith(
+        status: JobsStatus.error,
+        errorMessage: 'Failed to parse jobs list: $e',
       );
     }
   }

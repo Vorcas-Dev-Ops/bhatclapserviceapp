@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:partner_app/providers/job_dispatch_provider.dart';
@@ -41,7 +42,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   Widget _buildTopBar() {
-    final dispatchState = ref.watch(jobDispatchProvider);
     final walletState = ref.watch(walletProvider);
 
     return Padding(
@@ -84,65 +84,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     fontSize: 15,
                     fontWeight: FontWeight.bold,
                     color: Color(0xFF2D3047),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          
-          // Online Switch
-          GestureDetector(
-            onTap: () async {
-              final success = await ref.read(jobDispatchProvider.notifier).toggleAvailability();
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      success 
-                          ? 'Availability updated successfully!' 
-                          : 'Failed to update availability status.'
-                    ),
-                    duration: const Duration(seconds: 2),
-                    backgroundColor: success ? Colors.green : Colors.red,
-                  ),
-                );
-              }
-            },
-            behavior: HitTestBehavior.opaque,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  dispatchState.isOnline ? 'ONLINE' : 'OFFLINE',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                    color: dispatchState.isOnline ? Colors.green : Colors.red,
-                    letterSpacing: 0.5,
-                  ),
-                ),
-                const SizedBox(width: 4),
-                Transform.scale(
-                  scale: 0.8,
-                  child: Switch(
-                    value: dispatchState.isOnline,
-                    onChanged: (val) async {
-                      final success = await ref.read(jobDispatchProvider.notifier).toggleAvailability();
-                      if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                              success 
-                                  ? 'Availability updated successfully!' 
-                                  : 'Failed to update availability status.'
-                            ),
-                            duration: const Duration(seconds: 2),
-                            backgroundColor: success ? Colors.green : Colors.red,
-                          ),
-                        );
-                      }
-                    },
-                    activeThumbColor: Colors.green,
                   ),
                 ),
               ],
@@ -317,12 +258,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                             Navigator.pop(context);
                             final success = await ref.read(jobDispatchProvider.notifier).acceptJob(job.requestId);
                             if (success && mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('Job accepted! Navigate to Jobs tab for instructions.'),
-                                  backgroundColor: Colors.green,
-                                ),
-                              );
+                              showTopPillToast(context, 'Job accepted! Navigate to Jobs tab for instructions.');
                             }
                           },
                           style: ElevatedButton.styleFrom(
@@ -357,34 +293,68 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   Widget _buildGreetingHeader() {
     final authState = ref.watch(authProvider);
+    final dispatchState = ref.watch(jobDispatchProvider);
     final name = authState.user?.name ?? 'Partner';
     final greeting = _getGreeting();
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24.0),
-      child: Align(
-        alignment: Alignment.centerLeft,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              '$greeting, $name',
-              style: const TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF1C1F3E),
-              ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '$greeting, $name',
+                  style: const TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF1C1F3E),
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'Ready for today\'s bookings?',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.black45,
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 4),
-            const Text(
-              'Ready for today\'s bookings?',
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.black45,
-              ),
-            ),
-          ],
-        ),
+          ),
+          const SizedBox(width: 12),
+          SquareOnlineSlider(
+            isOnline: dispatchState.isOnline,
+            onTap: () async {
+              final success = await ref.read(jobDispatchProvider.notifier).toggleAvailability();
+              if (mounted) {
+                final dispatchState = ref.read(jobDispatchProvider);
+                if (success) {
+                  final isOnline = dispatchState.isOnline;
+                  showTopPillToast(
+                    context,
+                    isOnline ? 'You are online!' : 'You are offline',
+                    isError: false,
+                    isOffline: !isOnline,
+                  );
+                } else {
+                  final err = dispatchState.error;
+                  showTopPillToast(
+                    context,
+                    err ?? 'Failed to update availability status.',
+                    isError: true,
+                  );
+                }
+              }
+            },
+          ),
+        ],
       ),
     );
   }
@@ -1080,17 +1050,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               _buildQuickActionCard(Icons.calendar_today_outlined, 'Availability', () async {
                 final success = await ref.read(jobDispatchProvider.notifier).toggleAvailability();
                 if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                        success 
-                            ? 'Availability updated successfully!' 
-                            : 'Failed to update availability status.'
-                      ),
-                      duration: const Duration(seconds: 2),
-                      backgroundColor: success ? Colors.green : Colors.red,
-                    ),
-                  );
+                  final dispatchState = ref.read(jobDispatchProvider);
+                  if (success) {
+                    final isOnline = dispatchState.isOnline;
+                    showTopPillToast(
+                      context,
+                      isOnline ? 'You are online!' : 'You are offline',
+                      isError: false,
+                      isOffline: !isOnline,
+                    );
+                  } else {
+                    final err = dispatchState.error;
+                    showTopPillToast(
+                      context,
+                      err ?? 'Failed to update availability status.',
+                      isError: true,
+                    );
+                  }
                 }
               }),
               _buildQuickActionCard(Icons.account_balance_wallet_outlined, 'Add Credits', () {
@@ -1100,14 +1076,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 );
               }),
               _buildQuickActionCard(Icons.description_outlined, 'Documents', () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Documents feature coming soon!')),
-                );
+                showTopPillToast(context, 'Documents feature coming soon!');
               }),
               _buildQuickActionCard(Icons.school_outlined, 'Training', () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Training modules coming soon!')),
-                );
+                showTopPillToast(context, 'Training modules coming soon!');
               }),
             ],
           ),
@@ -1207,6 +1179,255 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class SquareOnlineSlider extends StatelessWidget {
+  final bool isOnline;
+  final bool isLoading;
+  final VoidCallback onTap;
+
+  const SquareOnlineSlider({
+    super.key,
+    required this.isOnline,
+    this.isLoading = false,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: isLoading ? null : onTap,
+      behavior: HitTestBehavior.opaque,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeInOut,
+        padding: const EdgeInsets.all(4),
+        width: 92,
+        height: 38,
+        decoration: BoxDecoration(
+          color: isOnline ? const Color(0xFF10B981) : const Color(0xFFE2E8F0),
+          borderRadius: BorderRadius.circular(10),
+          boxShadow: isOnline
+              ? [
+                  BoxShadow(
+                    color: const Color(0xFF10B981).withOpacity(0.35),
+                    blurRadius: 8,
+                    offset: const Offset(0, 3),
+                  ),
+                ]
+              : [],
+        ),
+        child: Stack(
+          children: [
+            // Dynamic Label: "ON" on left when online, "OFF" on right when offline
+            AnimatedAlign(
+              duration: const Duration(milliseconds: 250),
+              curve: Curves.easeInOutCubic,
+              alignment: isOnline ? Alignment.centerLeft : Alignment.centerRight,
+              child: Padding(
+                padding: EdgeInsets.only(
+                  left: isOnline ? 14.0 : 0.0,
+                  right: isOnline ? 0.0 : 14.0,
+                ),
+                child: Text(
+                  isOnline ? 'ON' : 'OFF',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                    color: isOnline ? Colors.white : const Color(0xFFEF4444),
+                    letterSpacing: 0.8,
+                  ),
+                ),
+              ),
+            ),
+            // Sliding Square Knob
+            AnimatedAlign(
+              duration: const Duration(milliseconds: 250),
+              curve: Curves.easeInOutCubic,
+              alignment: isOnline ? Alignment.centerRight : Alignment.centerLeft,
+              child: Container(
+                width: 30,
+                height: 30,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(7),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.12),
+                      blurRadius: 4,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Center(
+                  child: isLoading
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Color(0xFF10B981),
+                          ),
+                        )
+                      : Container(
+                          width: 8,
+                          height: 8,
+                          decoration: BoxDecoration(
+                            color: isOnline ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+void showTopPillToast(BuildContext context, String message, {bool isError = false, bool isOffline = false}) {
+  final overlay = Overlay.of(context);
+  late OverlayEntry entry;
+
+  entry = OverlayEntry(
+    builder: (context) => _TopPillToastWidget(
+      message: message,
+      isError: isError,
+      isOffline: isOffline,
+      onDismiss: () {
+        entry.remove();
+      },
+    ),
+  );
+
+  overlay.insert(entry);
+}
+
+class _TopPillToastWidget extends StatefulWidget {
+  final String message;
+  final bool isError;
+  final bool isOffline;
+  final VoidCallback onDismiss;
+
+  const _TopPillToastWidget({
+    required this.message,
+    required this.isError,
+    this.isOffline = false,
+    required this.onDismiss,
+  });
+
+  @override
+  State<_TopPillToastWidget> createState() => _TopPillToastWidgetState();
+}
+
+class _TopPillToastWidgetState extends State<_TopPillToastWidget> with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<Offset> _offsetAnimation;
+  late Animation<double> _fadeAnimation;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 350),
+    );
+
+    _offsetAnimation = Tween<Offset>(
+      begin: const Offset(0.0, -1.2),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(
+      parent: _controller,
+      curve: Curves.easeOutBack,
+    ));
+
+    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeIn),
+    );
+
+    _controller.forward();
+
+    _timer = Timer(const Duration(milliseconds: 2300), () {
+      if (mounted) {
+        _controller.reverse().then((_) {
+          widget.onDismiss();
+        });
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final topPadding = MediaQuery.of(context).padding.top;
+    final Color toastBgColor = widget.isError
+        ? const Color(0xFFEF4444)
+        : (widget.isOffline ? const Color(0xFF475569) : const Color(0xFF10B981));
+
+    return Positioned(
+      top: topPadding + 12,
+      left: 20,
+      right: 20,
+      child: Material(
+        color: Colors.transparent,
+        child: SlideTransition(
+          position: _offsetAnimation,
+          child: FadeTransition(
+            opacity: _fadeAnimation,
+            child: Center(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                decoration: BoxDecoration(
+                  color: toastBgColor,
+                  borderRadius: BorderRadius.circular(30),
+                  boxShadow: [
+                    BoxShadow(
+                      color: toastBgColor.withOpacity(0.35),
+                      blurRadius: 16,
+                      offset: const Offset(0, 6),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      widget.isError 
+                          ? Icons.error_outline_rounded 
+                          : (widget.isOffline ? Icons.power_settings_new_rounded : Icons.check_circle_rounded),
+                      color: Colors.white,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 10),
+                    Flexible(
+                      child: Text(
+                        widget.message,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
         ),
       ),
     );
