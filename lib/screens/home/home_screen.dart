@@ -42,7 +42,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   Widget _buildTopBar() {
-    final walletState = ref.watch(walletProvider);
+    final profileState = ref.watch(providerProfileProvider);
+    final profile = profileState.profileData;
+    
+    int creditsVal = 0;
+    if (profile != null) {
+      final walletBalance = profile['walletBalance'] ?? 0.0;
+      final reservedBalance = profile['reservedBalance'] ?? 0.0;
+      final creditLimit = profile['creditLimit'] ?? 500.0;
+      final availableCredit = (walletBalance as num).toDouble() - (reservedBalance as num).toDouble() + (creditLimit as num).toDouble();
+      creditsVal = (availableCredit / 10).toInt();
+    }
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 12.0),
@@ -50,43 +60,51 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           // Credits pill
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF5F6FA),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Row(
-              children: [
-                // Hexagon/diamond shape simulated
-                Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    const Icon(
-                      Icons.hexagon,
-                      color: Color(0xFF2D3047),
-                      size: 20,
-                    ),
-                    Container(
-                      width: 6,
-                      height: 6,
-                      decoration: const BoxDecoration(
-                        color: Colors.white,
-                        shape: BoxShape.circle,
+          GestureDetector(
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const AddCreditsScreen()),
+              );
+            },
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF5F6FA),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Row(
+                children: [
+                  // Hexagon/diamond shape simulated
+                  Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      const Icon(
+                        Icons.hexagon,
+                        color: Color(0xFF2D3047),
+                        size: 20,
                       ),
-                    ),
-                  ],
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  '${walletState.credits}',
-                  style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF2D3047),
+                      Container(
+                        width: 6,
+                        height: 6,
+                        decoration: const BoxDecoration(
+                          color: Colors.white,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-              ],
+                  const SizedBox(width: 8),
+                  Text(
+                    '$creditsVal',
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF2D3047),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
 
@@ -218,7 +236,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          '${job.scheduledAt} • ${job.bookingTime}',
+                          '${_formatDateString(job.scheduledAt)} • ${job.bookingTime}',
                           style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF1C1F3E)),
                         ),
                       ],
@@ -710,6 +728,20 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
+  String _formatDateString(String rawDate) {
+    if (rawDate.isEmpty) return '';
+    try {
+      final dt = DateTime.tryParse(rawDate);
+      if (dt != null) {
+        return '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
+      }
+    } catch (_) {}
+    if (rawDate.contains('T')) {
+      return rawDate.split('T').first;
+    }
+    return rawDate;
+  }
+
   Widget _buildTimeChip(IconData icon, String text) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
@@ -893,12 +925,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                             ),
                             const SizedBox(height: 12),
                             // Row of chips
-                            Row(
+                            // Chips layout
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
                               children: [
-                                _buildTimeChip(Icons.calendar_today_outlined, job.scheduledAt),
-                                const SizedBox(width: 8),
+                                _buildTimeChip(Icons.calendar_today_outlined, _formatDateString(job.scheduledAt)),
                                 _buildTimeChip(Icons.access_time_outlined, job.bookingTime),
-                                const SizedBox(width: 8),
                                 _buildTimeChip(Icons.history_toggle_off_outlined, '60 Mins'),
                               ],
                             ),

@@ -254,7 +254,8 @@ class JobDispatchNotifier extends StateNotifier<DispatchState> {
       await _apiClient.dio.patch(
         '/api/providers/live-location',
         data: {
-          'coordinates': [_mockLng, _mockLat],
+          'latitude': _mockLat,
+          'longitude': _mockLng,
         },
       );
     } catch (_) {}

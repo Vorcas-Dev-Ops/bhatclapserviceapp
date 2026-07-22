@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:partner_app/providers/jobs_provider.dart';
+import 'package:partner_app/providers/provider_profile_provider.dart';
+import 'package:partner_app/screens/finance/add_credits_screen.dart';
 import 'package:partner_app/screens/jobs/job_details_screen.dart';
 
 class JobsScreen extends ConsumerStatefulWidget {
@@ -32,6 +34,19 @@ class _JobsScreenState extends ConsumerState<JobsScreen> {
   }
 
   Widget _buildTopBar() {
+    final profileState = ref.watch(providerProfileProvider);
+    final profile = profileState.profileData;
+    
+    String creditsText = '...';
+    if (profile != null) {
+      final walletBalance = profile['walletBalance'] ?? 0.0;
+      final reservedBalance = profile['reservedBalance'] ?? 0.0;
+      final creditLimit = profile['creditLimit'] ?? 500.0;
+      final availableCredit = (walletBalance as num).toDouble() - (reservedBalance as num).toDouble() + (creditLimit as num).toDouble();
+      final credits = (availableCredit / 10).toInt();
+      creditsText = '$credits';
+    }
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 12.0),
       child: Row(
@@ -48,42 +63,50 @@ class _JobsScreenState extends ConsumerState<JobsScreen> {
           Row(
             children: [
               // Credits Pill
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF5F6FA),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Row(
-                  children: [
-                    Stack(
-                      alignment: Alignment.center,
-                      children: [
-                        const Icon(
-                          Icons.hexagon,
-                          color: Color(0xFF2D3047),
-                          size: 20,
-                        ),
-                        Container(
-                          width: 6,
-                          height: 6,
-                          decoration: const BoxDecoration(
-                            color: Colors.white,
-                            shape: BoxShape.circle,
+              GestureDetector(
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const AddCreditsScreen()),
+                  );
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF5F6FA),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Row(
+                    children: [
+                      Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          const Icon(
+                            Icons.hexagon,
+                            color: Color(0xFF2D3047),
+                            size: 20,
                           ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(width: 8),
-                    const Text(
-                      '200',
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF2D3047),
+                          Container(
+                            width: 6,
+                            height: 6,
+                            decoration: const BoxDecoration(
+                              color: Colors.white,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                        ],
                       ),
-                    ),
-                  ],
+                      const SizedBox(width: 8),
+                      Text(
+                        creditsText,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF2D3047),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
               const SizedBox(width: 12),

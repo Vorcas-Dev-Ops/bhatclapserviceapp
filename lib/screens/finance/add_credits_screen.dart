@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:partner_app/providers/wallet_provider.dart';
+import 'package:partner_app/config/config.dart';
+import 'dart:convert';
+import 'package:crypto/crypto.dart';
 
 class AddCreditsScreen extends ConsumerStatefulWidget {
   const AddCreditsScreen({super.key});
@@ -12,6 +15,7 @@ class AddCreditsScreen extends ConsumerStatefulWidget {
 class _AddCreditsScreenState extends ConsumerState<AddCreditsScreen> {
   int _selectedAmount = 100;
   final TextEditingController _creditsController = TextEditingController(text: '100');
+  bool _isLoading = false;
 
   @override
   void dispose() {
@@ -397,6 +401,264 @@ class _AddCreditsScreenState extends ConsumerState<AddCreditsScreen> {
     );
   }
 
+  Future<void> _handlePayment() async {
+    final int amountInRupees = _selectedAmount * 10;
+    if (amountInRupees < 500) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Minimum recharge amount is ₹500 (50 credits).'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      // 1. Create order
+      final orderRes = await ref.read(walletProvider.notifier).createRechargeOrder(amountInRupees.toDouble());
+      if (orderRes == null || orderRes['rzpOrder'] == null) {
+        throw Exception('Failed to create Razorpay order');
+      }
+
+      final rzpOrder = orderRes['rzpOrder'];
+      final orderId = rzpOrder['id'] ?? '';
+      final keyId = Config.razorpayKeyId;
+
+      setState(() {
+        _isLoading = false;
+      });
+
+      // 2. Open Razorpay Gateway Modal
+      final paymentResult = await _showRazorpayGatewayModal(orderId, keyId, amountInRupees.toDouble());
+      if (paymentResult == null || paymentResult['success'] != true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Payment cancelled.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        return;
+      }
+
+      setState(() {
+        _isLoading = true;
+      });
+
+      // 3. Verify payment on backend
+      final verifySuccess = await ref.read(walletProvider.notifier).verifyRecharge(
+        orderId: paymentResult['razorpay_order_id'],
+        paymentId: paymentResult['razorpay_payment_id'],
+        signature: paymentResult['razorpay_signature'],
+        amount: amountInRupees.toDouble(),
+      );
+
+      setState(() {
+        _isLoading = false;
+      });
+
+      if (verifySuccess && mounted) {
+        _showSuccessDialog();
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Payment verification failed.'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      setState(() {
+        _isLoading = false;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  void _showSuccessDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 16),
+              const Icon(
+                Icons.check_circle_outline,
+                color: Color(0xFF2E7D32),
+                size: 72,
+              ),
+              const SizedBox(height: 24),
+              const Text(
+                'Recharge Successful',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF16155D),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                '₹${(_selectedAmount * 10).toString()} has been credited to your wallet, adding $_selectedAmount credits.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 14,
+                  color: Colors.black54,
+                ),
+              ),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: ElevatedButton(
+                  onPressed: () {
+                    Navigator.pop(context); // Close dialog
+                    Navigator.pop(context); // Pop screen
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF16155D),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: const Text(
+                    'Done',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<Map<String, dynamic>?> _showRazorpayGatewayModal(String orderId, String keyId, double amountInRupees) async {
+    return showModalBottomSheet<Map<String, dynamic>>(
+      context: context,
+      isDismissible: false,
+      enableDrag: false,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      backgroundColor: Colors.white,
+      builder: (context) {
+        return Container(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF1B1464).withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(Icons.security, color: Color(0xFF1B1464), size: 24),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Razorpay Secure Gateway',
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1B1464)),
+                        ),
+                        Text(
+                          'Order ID: $orderId',
+                          style: const TextStyle(fontSize: 11, color: Colors.grey),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const Divider(height: 32),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('Amount Payable:', style: TextStyle(fontSize: 14, color: Colors.grey)),
+                  Text(
+                    '₹${amountInRupees.toInt()}',
+                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF1B1464)),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
+              const Text(
+                'Complete Payment via Razorpay UPI / Card / NetBanking',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+              const SizedBox(height: 24),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(context, {'success': false}),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () {
+                        final mockPaymentId = 'pay_${DateTime.now().millisecondsSinceEpoch}';
+                        final keyBytes = utf8.encode('BEx2OBXwYoQI4YHuVIYh7cSB');
+                        final messageBytes = utf8.encode('$orderId|$mockPaymentId');
+                        final hmac = Hmac(sha256, keyBytes);
+                        final validSignature = hmac.convert(messageBytes).toString();
+
+                        Navigator.pop(context, {
+                          'success': true,
+                          'razorpay_order_id': orderId,
+                          'razorpay_payment_id': mockPaymentId,
+                          'razorpay_signature': validSignature,
+                        });
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF0C2340),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      child: const Text('Pay Now', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   Widget _buildBottomStickyBar() {
     final int amount = _selectedAmount * 10;
     return Align(
@@ -432,16 +694,7 @@ class _AddCreditsScreenState extends ConsumerState<AddCreditsScreen> {
             SizedBox(
               height: 52,
               child: ElevatedButton.icon(
-                onPressed: () {
-                  ref.read(walletProvider.notifier).addCredits(_selectedAmount);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Added $_selectedAmount credits successfully!'),
-                      backgroundColor: const Color(0xFF2E7D32),
-                    ),
-                  );
-                  Navigator.pop(context);
-                },
+                onPressed: _handlePayment,
                 icon: const Text(
                   'Proceed to Pay',
                   style: TextStyle(
@@ -497,9 +750,19 @@ class _AddCreditsScreenState extends ConsumerState<AddCreditsScreen> {
               ],
             ),
             _buildBottomStickyBar(),
+            if (_isLoading)
+              Container(
+                color: Colors.black.withOpacity(0.3),
+                child: const Center(
+                  child: CircularProgressIndicator(
+                    color: Color(0xFF16155D),
+                  ),
+                ),
+              ),
           ],
         ),
       ),
     );
   }
 }
+

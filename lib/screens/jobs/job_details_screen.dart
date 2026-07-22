@@ -1,3 +1,4 @@
+import 'package:partner_app/providers/job_dispatch_provider.dart';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -13,6 +14,35 @@ class JobDetailsScreen extends ConsumerStatefulWidget {
 }
 
 class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
+  dynamic _getVal(String key) {
+    final b = widget.booking;
+    if (b == null) return null;
+    if (b is JobRequestModel) {
+      if (key == 'requestId') return b.requestId;
+      if (key == '_id') return b.bookingId;
+      if (key == 'booking_id') return b.displayId.isNotEmpty ? b.displayId : b.bookingId;
+      if (key == 'service_name') return b.serviceName;
+      if (key == 'amount' || key == 'payable_amount') return b.amount;
+      if (key == 'scheduled_at') return b.scheduledAt;
+      if (key == 'booking_time') return b.bookingTime;
+      if (key == 'address_id') {
+        return {
+          'address_line': b.address,
+          'city': b.city,
+          'pincode': b.pincode,
+        };
+      }
+      if (key == 'user_id') {
+        return {
+          'name': 'Customer',
+        };
+      }
+      if (key == 'status') return 'pending';
+      return null;
+    }
+    return b[key];
+  }
+
   // Steps: 0 -> Arrived at Location, 1 -> Enter Start OTP, 2 -> Service in Progress, 3 -> Enter End OTP
   int _stepIndex = 0;
 
@@ -20,7 +50,7 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
   void initState() {
     super.initState();
     if (!widget.isNewJob && widget.booking != null) {
-      final status = widget.booking['status'];
+      final status = _getVal('status');
       if (status == 'accepted') {
         _stepIndex = 0;
       } else if (status == 'waiting_start_otp') {
@@ -80,7 +110,7 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
 
   Future<void> _verifyStartServiceOtp() async {
     final otpCode = _startOtpControllers.map((c) => c.text).join();
-    final bookingId = widget.booking['_id'];
+    final bookingId = _getVal('_id');
     final success = await ref.read(jobsProvider.notifier).verifyStartOtp(bookingId, otpCode);
     if (success && mounted) {
       setState(() {
@@ -115,7 +145,7 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
 
   Future<void> _verifyEndServiceOtp() async {
     final otpCode = _endOtpControllers.map((c) => c.text).join();
-    final bookingId = widget.booking['_id'];
+    final bookingId = _getVal('_id');
     final success = await ref.read(jobsProvider.notifier).verifyEndOtp(bookingId, otpCode);
     if (success && mounted) {
       _showCompletionDialog();
@@ -237,13 +267,13 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
   }
 
   Widget _buildStep0ArrivedView() {
-    final address = widget.booking['address_id'] ?? {};
+    final address = _getVal('address_id') ?? {};
     final addressLine = address['address_line'] ?? 'No 48, 5th Cross, Hennur Rd';
     final city = address['city'] ?? 'Bengaluru';
-    final dateVal = _formatDateVal(widget.booking['scheduled_at']);
-    final timeVal = widget.booking['booking_time'] ?? 'Now';
+    final dateVal = _formatDateVal(_getVal('scheduled_at'));
+    final timeVal = _getVal('booking_time') ?? 'Now';
     
-    final user = widget.booking['user_id'] ?? {};
+    final user = _getVal('user_id') ?? {};
     final userName = user['name'] ?? 'Virat Sharma';
 
     return Expanded(
@@ -284,7 +314,7 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
                               ),
                               const SizedBox(height: 2),
                               Text(
-                                widget.booking['booking_id'] ?? '#BC-88241',
+                                _getVal('booking_id') ?? '#BC-88241',
                                 style: const TextStyle(
                                   fontSize: 14,
                                   fontWeight: FontWeight.bold,
@@ -467,7 +497,7 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            widget.booking['service_name'] ?? 'Cleaning Service',
+                            _getVal('service_name') ?? 'Cleaning Service',
                             style: const TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.bold,
@@ -485,7 +515,7 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
                         ],
                       ),
                       Text(
-                        '₹${widget.booking['payable_amount'] ?? widget.booking['amount'] ?? 450}',
+                        '₹${_getVal('payable_amount') ?? _getVal('amount') ?? 450}',
                         style: const TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
@@ -513,7 +543,7 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
                             ),
                           ),
                           Text(
-                            '₹${widget.booking['payable_amount'] ?? widget.booking['amount'] ?? 450}',
+                            '₹${_getVal('payable_amount') ?? _getVal('amount') ?? 450}',
                             style: const TextStyle(
                               fontSize: 13,
                               color: Color(0xFF1C1F3E),
@@ -535,7 +565,7 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
                             ),
                           ),
                           Text(
-                            '₹${((widget.booking['payable_amount'] ?? widget.booking['amount'] ?? 450) * 0.2).toStringAsFixed(0)}',
+                            '₹${((_getVal('payable_amount') ?? _getVal('amount') ?? 450) * 0.2).toStringAsFixed(0)}',
                             style: const TextStyle(
                               fontSize: 13,
                               color: Colors.red,
@@ -563,7 +593,7 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
                             ),
                           ),
                           Text(
-                            '₹${((widget.booking['payable_amount'] ?? widget.booking['amount'] ?? 450) * 0.8).toStringAsFixed(0)}',
+                            '₹${((_getVal('payable_amount') ?? _getVal('amount') ?? 450) * 0.8).toStringAsFixed(0)}',
                             style: const TextStyle(
                               fontSize: 18,
                               fontWeight: FontWeight.bold,
@@ -592,7 +622,7 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
                         onPressed: () async {
                           final success = await ref
                               .read(jobsProvider.notifier)
-                              .acceptJob(widget.booking.requestId);
+                              .acceptJob(_getVal('requestId'));
                           if (success && mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(
@@ -623,7 +653,7 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
                         onPressed: () async {
                           final success = await ref
                               .read(jobsProvider.notifier)
-                              .startService(widget.booking['_id'], ['https://cloudinary.com/mock-before.jpg']);
+                              .startService(_getVal('_id'), ['https://cloudinary.com/mock-before.jpg']);
                           if (success && mounted) {
                             setState(() {
                               _stepIndex = 1;
@@ -815,7 +845,7 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
   }
 
   Widget _buildStep2ServiceInProgressView() {
-    final user = widget.booking['user_id'] ?? {};
+    final user = _getVal('user_id') ?? {};
     final userName = user['name'] ?? 'Virat Sharma';
     
     return Expanded(
@@ -868,7 +898,7 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            widget.booking['service_name'] ?? 'Cleaning Service',
+                            _getVal('service_name') ?? 'Cleaning Service',
                             style: const TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.bold,
@@ -886,7 +916,7 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
                         ],
                       ),
                       Text(
-                        '₹${widget.booking['payable_amount'] ?? widget.booking['amount'] ?? 450}',
+                        '₹${_getVal('payable_amount') ?? _getVal('amount') ?? 450}',
                         style: const TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
@@ -927,7 +957,7 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
                               ),
                               const SizedBox(height: 2),
                               Text(
-                                widget.booking['booking_id'] ?? '#BC-88241',
+                                _getVal('booking_id') ?? '#BC-88241',
                                 style: const TextStyle(
                                   fontSize: 13,
                                   fontWeight: FontWeight.bold,
@@ -1091,7 +1121,7 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
                       ? () async {
                           final success = await ref
                               .read(jobsProvider.notifier)
-                              .finishService(widget.booking['_id'], ['https://cloudinary.com/mock-after.jpg']);
+                              .finishService(_getVal('_id'), ['https://cloudinary.com/mock-after.jpg']);
                           if (success && mounted) {
                             setState(() {
                               _stepIndex = 3; // Move to entering End OTP
@@ -1252,7 +1282,7 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
       activeContent = _buildStep3EnterEndOtpView();
     }
 
-    final String serviceTitle = widget.booking['service_name'] ?? 'Service Details';
+    final String serviceTitle = _getVal('service_name') ?? 'Service Details';
 
     return Scaffold(
       backgroundColor: const Color(0xFFFAFAFC),

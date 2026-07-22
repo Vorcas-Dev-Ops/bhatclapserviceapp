@@ -672,9 +672,19 @@ class _MoneyScreenState extends ConsumerState<MoneyScreen> {
     final profileState = ref.watch(providerProfileProvider);
     final isLoading = walletState.status == WalletStatus.loading || profileState.status == ProfileStatus.loading;
 
+    final profile = profileState.profileData;
+    int creditsVal = 0;
+    if (profile != null) {
+      final walletBalance = profile['walletBalance'] ?? 0.0;
+      final reservedBalance = profile['reservedBalance'] ?? 0.0;
+      final creditLimit = profile['creditLimit'] ?? 500.0;
+      final availableCredit = (walletBalance as num).toDouble() - (reservedBalance as num).toDouble() + (creditLimit as num).toDouble();
+      creditsVal = (availableCredit / 10).toInt();
+    }
+
     return Column(
       children: [
-        _buildTopBar(walletState.balance, walletState.credits),
+        _buildTopBar(walletState.balance, creditsVal),
         const SizedBox(height: 8),
         Expanded(
           child: isLoading
@@ -693,7 +703,7 @@ class _MoneyScreenState extends ConsumerState<MoneyScreen> {
                         _buildAlertBanner(),
                         _buildTransfersSection(walletState.transactions),
                         const SizedBox(height: 16),
-                        _buildExploreMore(context, walletState.credits),
+                        _buildExploreMore(context, creditsVal),
                         const SizedBox(height: 24),
                       ],
                     ),
