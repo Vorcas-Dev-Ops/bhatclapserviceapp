@@ -6,6 +6,7 @@ import '../services/api_client.dart';
 import 'api_providers.dart';
 import 'auth_provider.dart';
 import 'provider_profile_provider.dart';
+import 'package:geolocator/geolocator.dart';
 
 class JobRequestModel {
   final String requestId;
@@ -92,10 +93,6 @@ class JobDispatchNotifier extends StateNotifier<DispatchState> {
   final Ref _ref;
   io.Socket? _socket;
   Timer? _locationTimer;
-
-  // Bengaluru mock coordinates matching test bookings and backend location
-  double _mockLat = 12.9716;
-  double _mockLng = 77.5946;
 
   JobDispatchNotifier({
     required ApiClient apiClient,
@@ -235,30 +232,54 @@ class JobDispatchNotifier extends StateNotifier<DispatchState> {
     if (profile == null) return;
 
     final providerId = profile['_id'];
-    
-    // Simulate slight movements around Delhi for GPS active updates
-    _mockLat += 0.0001;
-    _mockLng += 0.0001;
 
-    // Emit live coordinate update to WebSocket
-    if (_socket != null && _socket!.connected) {
-      _socket!.emit('updateLocation', {
-        'providerId': providerId,
-        'lat': _mockLat,
-        'lng': _mockLng,
-      });
-    }
-
-    // Backup: update live coordinates in database via REST API Gateway
     try {
-      await _apiClient.dio.patch(
-        '/api/providers/live-location',
-        data: {
-          'latitude': _mockLat,
-          'longitude': _mockLng,
-        },
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        return; // Location services are disabled.
+      }
+
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          return; // Location permissions are denied
+        }
+      }
+
+      if (permission == LocationPermission.deniedForever) {
+        return; // Permissions are denied forever
+      }
+
+      Position position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
       );
-    } catch (_) {}
+
+      // Emit live coordinate update to WebSocket
+      if (_socket != null && _socket!.connected) {
+        _socket!.emit('updateLocation', {
+          'providerId': providerId,
+          'lat': position.latitude,
+          'lng': position.longitude,
+        });
+      }
+
+      // Backup: update live coordinates in database via REST API Gateway
+      try {
+        await _apiClient.dio.patch(
+          '/api/providers/live-location',
+          data: {
+            'latitude': position.latitude,
+            'longitude': position.longitude,
+            'heading': position.heading,
+            'speed': position.speed,
+            'accuracy': position.accuracy,
+          },
+        );
+      } catch (_) {}
+    } catch (e) {
+      print('=== Location report error: $e ===');
+    }
   }
 
   // Accept incoming job request

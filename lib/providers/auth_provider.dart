@@ -142,6 +142,58 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
   }
 
+  // Google Sign In
+  Future<bool> signInWithGoogle(String googleToken) async {
+    state = state.copyWith(status: AuthStatus.loading);
+    try {
+      final response = await _apiClient.dio.post(
+        '/api/users/google-login',
+        data: {
+          'token': googleToken,
+          'role': 'provider', // Backend requires this for partner app login if modified, else it ignores it
+        },
+      );
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final data = response.data;
+        if (data['user'] != null) {
+          final userJson = data['user'];
+          final token = userJson['token'];
+          final userId = userJson['_id'];
+          final role = userJson['role'] ?? 'provider';
+
+          final refreshToken = await _tokenStorage.getRefreshToken() ?? '';
+
+          await _tokenStorage.saveTokens(
+            accessToken: token,
+            refreshToken: refreshToken,
+            userId: userId,
+            userRole: role,
+          );
+
+          final userModel = UserModel.fromJson(userJson);
+          state = AuthState(
+            status: AuthStatus.authenticated,
+            user: userModel,
+          );
+          return true;
+        }
+      }
+      
+      state = state.copyWith(
+        status: AuthStatus.error,
+        errorMessage: response.data['message'] ?? 'Invalid response from server',
+      );
+      return false;
+    } on DioException catch (e) {
+      state = state.copyWith(
+        status: AuthStatus.error,
+        errorMessage: e.response?.data['message'] ?? 'Network error occurred',
+      );
+      return false;
+    }
+  }
+
   // Step 2: Verify OTP code
   Future<bool> verifyOtp(String otp) async {
     final phone = state.pendingPhone;

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:partner_app/screens/auth/otp_screen.dart';
 import 'package:partner_app/providers/auth_provider.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -17,6 +19,43 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   void dispose() {
     _phoneController.dispose();
     super.dispose();
+  }
+
+  Future<void> _handleGoogleSignIn() async {
+    final clientId = dotenv.env['NEXT_PUBLIC_GOOGLE_CLIENT_ID'];
+    final GoogleSignIn googleSignIn = GoogleSignIn(
+      serverClientId: clientId, // Use the client ID from .env without exposing in code
+    );
+
+    try {
+      final GoogleSignInAccount? googleUser = await googleSignIn.signIn();
+      if (googleUser == null) return; // User canceled sign-in
+
+      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+      final idToken = googleAuth.idToken;
+
+      if (idToken != null) {
+        final success = await ref.read(authProvider.notifier).signInWithGoogle(idToken);
+        if (!success && mounted) {
+          final authState = ref.read(authProvider);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(authState.errorMessage ?? 'Google Sign-In failed')),
+          );
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Failed to retrieve ID token from Google')),
+          );
+        }
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Google Sign-In error: $error')),
+        );
+      }
+    }
   }
 
   @override
@@ -221,7 +260,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       width: double.infinity,
                       height: 52,
                       child: OutlinedButton(
-                        onPressed: () {},
+                        onPressed: isLoading ? null : _handleGoogleSignIn,
                         style: OutlinedButton.styleFrom(
                           side: const BorderSide(color: Color(0xFFE0E0E0)),
                           shape: RoundedRectangleBorder(

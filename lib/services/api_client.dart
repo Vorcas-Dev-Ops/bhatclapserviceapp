@@ -1,13 +1,19 @@
 import 'package:dio/dio.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'token_storage.dart';
 
 class ApiClient {
   late final Dio dio;
   final TokenStorage _tokenStorage = TokenStorage();
   
-  // Base URL configured for Android Emulator pointing to local API Gateway
-  static const String baseUrl = 'http://10.0.2.2:5000';
-
+  // Expose base URL dynamically from dotenv, fallback to local android gateway loopback
+  static final String baseUrl = () {
+    String url = dotenv.env['NEXT_PUBLIC_BACKEND_URL'] ?? 'http://localhost:5000';
+    if (url.contains('localhost')) {
+      url = url.replaceAll('localhost', '10.0.2.2');
+    }
+    return url;
+  }();
   ApiClient() {
     dio = Dio(
       BaseOptions(
