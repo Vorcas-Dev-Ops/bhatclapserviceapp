@@ -15,6 +15,7 @@ import 'package:partner_app/screens/finance/credits_screen.dart';
 import 'package:partner_app/screens/profile/performance_screen.dart';
 import 'package:partner_app/screens/finance/insurance_screen.dart';
 import 'package:partner_app/screens/shop/shop_screen.dart';
+import 'package:partner_app/screens/profile/subscription_screen.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
@@ -443,6 +444,19 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     context,
                     MaterialPageRoute(
                       builder: (context) => const ShopScreen(),
+                    ),
+                  );
+                },
+              ),
+              const Divider(height: 1, color: Color(0xFFEFF1FE)),
+              _buildListTile(
+                icon: Icons.card_membership_outlined,
+                title: 'Subscription',
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const SubscriptionScreen(),
                     ),
                   );
                 },
