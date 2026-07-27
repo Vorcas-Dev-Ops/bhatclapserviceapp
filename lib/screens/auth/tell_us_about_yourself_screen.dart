@@ -1,7 +1,38 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:partner_app/screens/auth/services_you_offer_screen.dart';
+import 'package:partner_app/screens/auth/login_screen.dart';
 import 'package:partner_app/providers/auth_provider.dart';
+import 'package:partner_app/providers/provider_profile_provider.dart';
+
+class DobInputFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    if (newValue.text.length < oldValue.text.length) {
+      return newValue;
+    }
+
+    final digitsOnly = newValue.text.replaceAll(RegExp(r'\D'), '');
+    final buffer = StringBuffer();
+
+    for (int i = 0; i < digitsOnly.length && i < 8; i++) {
+      if (i == 2 || i == 4) {
+        buffer.write('/');
+      }
+      buffer.write(digitsOnly[i]);
+    }
+
+    final formatted = buffer.toString();
+    return TextEditingValue(
+      text: formatted,
+      selection: TextSelection.collapsed(offset: formatted.length),
+    );
+  }
+}
 
 class TellUsAboutYourselfScreen extends ConsumerStatefulWidget {
   const TellUsAboutYourselfScreen({super.key});
@@ -24,15 +55,21 @@ class _TellUsAboutYourselfScreenState extends ConsumerState<TellUsAboutYourselfS
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _populateFields();
+    });
+  }
+
+  void _populateFields() {
     final user = ref.read(authProvider).user;
     if (user != null) {
-      if (user.name != null && user.name!.isNotEmpty) {
+      if (_nameController.text.isEmpty && user.name != null && user.name!.isNotEmpty) {
         _nameController.text = user.name!;
       }
-      if (user.email != null && user.email!.isNotEmpty) {
+      if (_emailController.text.isEmpty && user.email != null && user.email!.isNotEmpty) {
         _emailController.text = user.email!;
       }
-      if (user.gender != null && user.gender!.isNotEmpty) {
+      if (_selectedGender == null && user.gender != null && user.gender!.isNotEmpty) {
         final g = user.gender!.trim().toLowerCase();
         if (g == 'male') {
           _selectedGender = 'Male';
@@ -40,10 +77,32 @@ class _TellUsAboutYourselfScreenState extends ConsumerState<TellUsAboutYourselfS
           _selectedGender = 'Female';
         } else if (g == 'other') {
           _selectedGender = 'Other';
-        } else {
-          _selectedGender = g[0].toUpperCase() + g.substring(1);
         }
       }
+    }
+
+    final profile = ref.read(providerProfileProvider).profileData;
+    final userData = profile?['user_id'];
+    if (userData is Map) {
+      if (_nameController.text.isEmpty && userData['name'] != null && userData['name'].toString().isNotEmpty) {
+        _nameController.text = userData['name'].toString();
+      }
+      if (_emailController.text.isEmpty && userData['email'] != null && userData['email'].toString().isNotEmpty) {
+        _emailController.text = userData['email'].toString();
+      }
+      if (_selectedGender == null && userData['gender'] != null && userData['gender'].toString().isNotEmpty) {
+        final g = userData['gender'].toString().trim().toLowerCase();
+        if (g == 'male') {
+          _selectedGender = 'Male';
+        } else if (g == 'female') {
+          _selectedGender = 'Female';
+        } else if (g == 'other') {
+          _selectedGender = 'Other';
+        }
+      }
+    }
+    if (mounted) {
+      setState(() {});
     }
   }
 
@@ -62,6 +121,7 @@ class _TellUsAboutYourselfScreenState extends ConsumerState<TellUsAboutYourselfS
       initialDate: DateTime.now().subtract(const Duration(days: 365 * 18)),
       firstDate: DateTime(1900),
       lastDate: DateTime.now(),
+      locale: const Locale('en', 'GB'),
       builder: (context, child) {
         return Theme(
           data: Theme.of(context).copyWith(
@@ -77,7 +137,7 @@ class _TellUsAboutYourselfScreenState extends ConsumerState<TellUsAboutYourselfS
     );
     if (picked != null) {
       setState(() {
-        _dobController.text = "${picked.month.toString().padLeft(2, '0')}/${picked.day.toString().padLeft(2, '0')}/${picked.year}";
+        _dobController.text = "${picked.day.toString().padLeft(2, '0')}/${picked.month.toString().padLeft(2, '0')}/${picked.year}";
       });
     }
   }
@@ -96,18 +156,46 @@ class _TellUsAboutYourselfScreenState extends ConsumerState<TellUsAboutYourselfS
     }
   }
 
+  Future<void> _handleGoBack() async {
+    await ref.read(authProvider.notifier).logout();
+    if (mounted) {
+      if (Navigator.canPop(context)) {
+        Navigator.pop(context);
+      } else {
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (context) => LoginScreen()),
+          (route) => false,
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
+    ref.listen(providerProfileProvider, (_, next) {
+      if (next.status == ProfileStatus.loaded) {
+        _populateFields();
+      }
+    });
+
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) {
+          _handleGoBack();
+        }
+      },
+      child: Scaffold(
         backgroundColor: Colors.white,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.black87),
-          onPressed: () => Navigator.pop(context),
+        appBar: AppBar(
+          backgroundColor: Colors.white,
+          elevation: 0,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back, color: Colors.black87),
+            onPressed: _handleGoBack,
+          ),
         ),
-      ),
       body: SafeArea(
         child: Column(
           children: [
@@ -182,14 +270,23 @@ class _TellUsAboutYourselfScreenState extends ConsumerState<TellUsAboutYourselfS
                       _buildLabel('Date of Birth'),
                       TextFormField(
                         controller: _dobController,
-                        readOnly: true,
-                        onTap: () => _selectDate(context),
-                        decoration: _buildInputDecoration('mm/dd/yyyy').copyWith(
-                          suffixIcon: const Icon(Icons.calendar_month, color: Color(0xFF16155D)),
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                          DobInputFormatter(),
+                        ],
+                        decoration: _buildInputDecoration('DD/MM/YYYY').copyWith(
+                          suffixIcon: IconButton(
+                            icon: const Icon(Icons.calendar_month, color: Color(0xFF16155D)),
+                            onPressed: () => _selectDate(context),
+                          ),
                         ),
                         validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return 'Please select your date of birth';
+                          if (value == null || value.trim().isEmpty) {
+                            return 'Please enter your date of birth';
+                          }
+                          if (value.length < 10) {
+                            return 'Please enter a valid date (DD/MM/YYYY)';
                           }
                           return null;
                         },
@@ -371,7 +468,8 @@ class _TellUsAboutYourselfScreenState extends ConsumerState<TellUsAboutYourselfS
           ],
         ),
       ),
-    );
+    ),
+  );
   }
 
   Widget _buildLabel(String text) {

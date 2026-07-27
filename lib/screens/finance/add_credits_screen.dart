@@ -2,8 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:partner_app/providers/wallet_provider.dart';
 import 'package:partner_app/config/config.dart';
-import 'dart:convert';
-import 'package:crypto/crypto.dart';
+import 'package:partner_app/widgets/razorpay_gateway_modal.dart';
 
 class AddCreditsScreen extends ConsumerStatefulWidget {
   const AddCreditsScreen({super.key});
@@ -555,107 +554,16 @@ class _AddCreditsScreenState extends ConsumerState<AddCreditsScreen> {
   Future<Map<String, dynamic>?> _showRazorpayGatewayModal(String orderId, String keyId, double amountInRupees) async {
     return showModalBottomSheet<Map<String, dynamic>>(
       context: context,
+      isScrollControlled: true,
       isDismissible: false,
       enableDrag: false,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      backgroundColor: Colors.transparent,
+      builder: (context) => PartnerRazorpayGatewayModalSheet(
+        orderId: orderId,
+        keyId: keyId,
+        amount: amountInRupees,
+        title: 'Partner Wallet Credit Recharge',
       ),
-      backgroundColor: Colors.white,
-      builder: (context) {
-        return Container(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF1B1464).withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Icon(Icons.security, color: Color(0xFF1B1464), size: 24),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Razorpay Secure Gateway',
-                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1B1464)),
-                        ),
-                        Text(
-                          'Order ID: $orderId',
-                          style: const TextStyle(fontSize: 11, color: Colors.grey),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const Divider(height: 32),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text('Amount Payable:', style: TextStyle(fontSize: 14, color: Colors.grey)),
-                  Text(
-                    '₹${amountInRupees.toInt()}',
-                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF1B1464)),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 24),
-              const Text(
-                'Complete Payment via Razorpay UPI / Card / NetBanking',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 12, color: Colors.grey),
-              ),
-              const SizedBox(height: 24),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => Navigator.pop(context, {'success': false}),
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                      child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: () {
-                        final mockPaymentId = 'pay_${DateTime.now().millisecondsSinceEpoch}';
-                        final keyBytes = utf8.encode('BEx2OBXwYoQI4YHuVIYh7cSB');
-                        final messageBytes = utf8.encode('$orderId|$mockPaymentId');
-                        final hmac = Hmac(sha256, keyBytes);
-                        final validSignature = hmac.convert(messageBytes).toString();
-
-                        Navigator.pop(context, {
-                          'success': true,
-                          'razorpay_order_id': orderId,
-                          'razorpay_payment_id': mockPaymentId,
-                          'razorpay_signature': validSignature,
-                        });
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF0C2340),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                      child: const Text('Pay Now', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        );
-      },
     );
   }
 

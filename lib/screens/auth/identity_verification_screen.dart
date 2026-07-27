@@ -8,6 +8,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:cunning_document_scanner/cunning_document_scanner.dart';
 import 'package:partner_app/providers/provider_profile_provider.dart';
 import 'package:partner_app/providers/auth_provider.dart';
+import 'package:partner_app/screens/auth/select_service_location_screen.dart';
 import 'package:partner_app/screens/auth/bank_details_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:path_provider/path_provider.dart';
@@ -790,7 +791,16 @@ class _IdentityVerificationScreenState extends ConsumerState<IdentityVerificatio
                   SizedBox(
                     height: 54,
                     child: ElevatedButton(
-                      onPressed: () => Navigator.pop(context),
+                      onPressed: () {
+                        if (Navigator.canPop(context)) {
+                          Navigator.pop(context);
+                        } else {
+                          Navigator.pushReplacement(
+                            context,
+                            MaterialPageRoute(builder: (context) => SelectServiceLocationScreen()),
+                          );
+                        }
+                      },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFFEFF1FE),
                         foregroundColor: const Color(0xFF16155D),

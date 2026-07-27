@@ -96,35 +96,25 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
   }
 
-  String _normalizePhone(String phone) {
-    final clean = phone.replaceAll(RegExp(r'\s+'), '');
-    if (clean.startsWith('+')) {
-      return clean;
-    }
-    if (clean.length == 10) {
-      return '+91$clean';
-    }
-    return clean;
-  }
-
   // Step 1: Send OTP to Phone
   Future<bool> sendOtp(String phone) async {
-    final normalized = _normalizePhone(phone);
+    final identifier = phone.trim();
     state = state.copyWith(status: AuthStatus.loading);
     try {
       final response = await _apiClient.dio.post(
         '/api/users/send-otp',
         data: {
-          'identifier': normalized,
+          'identifier': identifier,
           'role': 'provider',
           'useEmail': false,
           'mode': 'login',
         },
       );
+
       if (response.statusCode == 200) {
         state = state.copyWith(
           status: AuthStatus.unauthenticated,
-          pendingPhone: normalized,
+          pendingPhone: identifier,
         );
         return true;
       }
@@ -194,6 +184,58 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
   }
 
+  // Email & Password Sign In
+  Future<bool> signInWithEmail(String email, String password) async {
+    state = state.copyWith(status: AuthStatus.loading);
+    try {
+      final response = await _apiClient.dio.post(
+        '/api/users/login',
+        data: {
+          'email': email.trim(),
+          'password': password,
+        },
+      );
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final data = response.data;
+        final userJson = data['user'] ?? data;
+        final token = data['token'] ?? userJson['token'];
+        final userId = userJson['_id'] ?? data['_id'];
+        final role = userJson['role'] ?? data['role'] ?? 'provider';
+
+        final refreshToken = await _tokenStorage.getRefreshToken() ?? '';
+
+        if (token != null) {
+          await _tokenStorage.saveTokens(
+            accessToken: token,
+            refreshToken: refreshToken,
+            userId: userId,
+            userRole: role,
+          );
+        }
+
+        final userModel = UserModel.fromJson(userJson);
+        state = AuthState(
+          status: AuthStatus.authenticated,
+          user: userModel,
+        );
+        return true;
+      }
+
+      state = state.copyWith(
+        status: AuthStatus.error,
+        errorMessage: response.data['message'] ?? 'Invalid email or password',
+      );
+      return false;
+    } on DioException catch (e) {
+      state = state.copyWith(
+        status: AuthStatus.error,
+        errorMessage: e.response?.data['message'] ?? 'Network error occurred',
+      );
+      return false;
+    }
+  }
+
   // Step 2: Verify OTP code
   Future<bool> verifyOtp(String otp) async {
     final phone = state.pendingPhone;
@@ -205,27 +247,28 @@ class AuthNotifier extends StateNotifier<AuthState> {
       return false;
     }
 
+    final identifier = phone.trim();
+
     state = state.copyWith(status: AuthStatus.loading);
     try {
       final response = await _apiClient.dio.post(
         '/api/users/verify-otp',
         data: {
-          'identifier': phone,
+          'identifier': identifier,
           'otp': otp,
           'useEmail': false,
         },
       );
 
+      final data = response.data;
+      final userJson = data?['user'];
+
       if (response.statusCode == 200) {
-        final data = response.data;
-        if (data['user'] != null && data['user']['_id'] != 'pending_verification') {
-          // User exists, save tokens
-          final userJson = data['user'];
+        if (userJson != null && userJson['_id'] != 'pending_verification') {
           final token = userJson['token'];
           final userId = userJson['_id'];
           final role = userJson['role'] ?? 'provider';
 
-          // Extract refresh token from Set-Cookie header parsed in Interceptor
           final refreshToken = await _tokenStorage.getRefreshToken() ?? '';
 
           await _tokenStorage.saveTokens(
@@ -242,7 +285,6 @@ class AuthNotifier extends StateNotifier<AuthState> {
           );
           return true;
         } else {
-          // New User, needs to fill registration details
           state = state.copyWith(
             status: AuthStatus.pendingRegistration,
             pendingPhone: phone,
@@ -250,6 +292,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
           return true;
         }
       }
+
       state = state.copyWith(
         status: AuthStatus.error,
         errorMessage: response.data['message'] ?? 'OTP verification failed',

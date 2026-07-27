@@ -179,66 +179,37 @@ class _ApprovalScreenState extends ConsumerState<ApprovalScreen> {
                   ),
                 ),
               ] else ...[
-                Row(
-                  children: [
-                    Expanded(
-                      child: SizedBox(
-                        height: 54,
-                        child: OutlinedButton(
-                          onPressed: isLoading
-                              ? null
-                              : () => ref.read(providerProfileProvider.notifier).fetchProfile(),
-                          style: OutlinedButton.styleFrom(
-                            side: const BorderSide(color: Color(0xFF16155D)),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                          ),
-                          child: isLoading
-                              ? const SizedBox(
-                                  height: 20,
-                                  width: 20,
-                                  child: CircularProgressIndicator(strokeWidth: 2),
-                                )
-                              : const Text(
-                                  'Check Status',
-                                  style: TextStyle(
-                                    fontSize: 15,
-                                    color: Color(0xFF16155D),
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                        ),
+                SizedBox(
+                  width: double.infinity,
+                  height: 54,
+                  child: OutlinedButton(
+                    onPressed: isLoading
+                        ? null
+                        : () {
+                            ref.read(providerProfileProvider.notifier).fetchProfile();
+                            _showTopPillPopup(context, "Your Documents are under review");
+                          },
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: Color(0xFF16155D), width: 1.5),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(20),
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: SizedBox(
-                        height: 54,
-                        child: ElevatedButton(
-                          onPressed: () {
-                            // Let them close the screen but keep them unverified
-                            Navigator.popUntil(context, (route) => route.isFirst);
-                          },
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF16155D),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            elevation: 0,
-                          ),
-                          child: const Text(
-                            'Got it',
+                    child: isLoading
+                        ? const SizedBox(
+                            height: 20,
+                            width: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF16155D)),
+                          )
+                        : const Text(
+                            'Check Status',
                             style: TextStyle(
                               fontSize: 16,
-                              color: Colors.white,
+                              color: Color(0xFF16155D),
                               fontWeight: FontWeight.w600,
                             ),
                           ),
-                        ),
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
               ],
               
@@ -266,6 +237,134 @@ class _ApprovalScreenState extends ConsumerState<ApprovalScreen> {
               ],
               const SizedBox(height: 20),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showTopPillPopup(BuildContext context, String message) {
+    final overlayState = Overlay.of(context);
+    late OverlayEntry overlayEntry;
+
+    overlayEntry = OverlayEntry(
+      builder: (context) {
+        return _TopPillWidget(
+          message: message,
+          onDismissed: () {
+            overlayEntry.remove();
+          },
+        );
+      },
+    );
+
+    overlayState.insert(overlayEntry);
+  }
+}
+
+class _TopPillWidget extends StatefulWidget {
+  final String message;
+  final VoidCallback onDismissed;
+
+  const _TopPillWidget({
+    required this.message,
+    required this.onDismissed,
+  });
+
+  @override
+  State<_TopPillWidget> createState() => _TopPillWidgetState();
+}
+
+class _TopPillWidgetState extends State<_TopPillWidget> with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<Offset> _offsetAnimation;
+  late Animation<double> _fadeAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 350),
+    );
+
+    _offsetAnimation = Tween<Offset>(
+      begin: const Offset(0.0, -1.5),
+      end: const Offset(0.0, 0.0),
+    ).animate(CurvedAnimation(
+      parent: _controller,
+      curve: Curves.easeOutCubic,
+    ));
+
+    _fadeAnimation = CurvedAnimation(
+      parent: _controller,
+      curve: Curves.easeIn,
+    );
+
+    _controller.forward();
+
+    Future.delayed(const Duration(seconds: 3), () async {
+      if (mounted) {
+        await _controller.reverse();
+        widget.onDismissed();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final topPadding = MediaQuery.of(context).padding.top;
+    return Positioned(
+      top: topPadding + 16,
+      left: 24,
+      right: 24,
+      child: SlideTransition(
+        position: _offsetAnimation,
+        child: FadeTransition(
+          opacity: _fadeAnimation,
+          child: Material(
+            color: Colors.transparent,
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF16155D),
+                  borderRadius: BorderRadius.circular(30),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Colors.black26,
+                      blurRadius: 10,
+                      offset: Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.info_outline, color: Colors.white, size: 20),
+                    const SizedBox(width: 10),
+                    Flexible(
+                      child: Text(
+                        widget.message,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           ),
         ),
       ),

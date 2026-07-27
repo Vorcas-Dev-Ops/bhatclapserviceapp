@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:partner_app/providers/provider_profile_provider.dart';
 import 'package:partner_app/screens/auth/approval_screen.dart';
+import 'package:partner_app/screens/auth/identity_verification_screen.dart';
 
 class BankDetailsScreen extends ConsumerStatefulWidget {
   final bool isEditing;
@@ -259,7 +260,16 @@ class _BankDetailsScreenState extends ConsumerState<BankDetailsScreen> {
                   SizedBox(
                     height: 54,
                     child: ElevatedButton(
-                      onPressed: () => Navigator.pop(context),
+                      onPressed: () {
+                        if (Navigator.canPop(context)) {
+                          Navigator.pop(context);
+                        } else {
+                          Navigator.pushReplacement(
+                            context,
+                            MaterialPageRoute(builder: (context) => IdentityVerificationScreen()),
+                          );
+                        }
+                      },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFFEFF1FE),
                         foregroundColor: const Color(0xFF16155D),

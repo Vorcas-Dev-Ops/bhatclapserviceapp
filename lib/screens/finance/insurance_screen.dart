@@ -245,43 +245,6 @@ class InsuranceScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildBottomStickyBar() {
-    return Align(
-      alignment: Alignment.bottomCenter,
-      child: Container(
-        color: Colors.white,
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-        child: SizedBox(
-          width: double.infinity,
-          height: 54,
-          child: ElevatedButton.icon(
-            onPressed: () {},
-            icon: const Icon(
-              Icons.add_circle_outline,
-              color: Colors.white,
-              size: 20,
-            ),
-            label: const Text(
-              'File a New Claim',
-              style: TextStyle(
-                fontSize: 16,
-                color: Colors.white,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF16155D),
-              elevation: 0,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return Scaffold(

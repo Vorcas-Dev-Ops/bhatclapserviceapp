@@ -14,6 +14,7 @@ import 'package:partner_app/screens/jobs/job_history_screen.dart';
 import 'package:partner_app/screens/finance/credits_screen.dart';
 import 'package:partner_app/screens/profile/performance_screen.dart';
 import 'package:partner_app/screens/finance/insurance_screen.dart';
+import 'package:partner_app/screens/shop/shop_screen.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
@@ -118,8 +119,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
     final name = (user?.name != null && user!.name!.isNotEmpty)
         ? user.name!
-        : (profileData?['name'] != null && profileData!['name'].toString().isNotEmpty)
-            ? profileData!['name'].toString()
+        : (profileData != null && profileData['name'] != null && profileData['name'].toString().isNotEmpty)
+            ? profileData['name'].toString()
             : 'Partner';
 
     final email = (user?.email != null && user!.email!.isNotEmpty)
@@ -438,8 +439,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                 icon: Icons.shopping_bag_outlined,
                 title: 'Shop',
                 onTap: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Shop coming soon!')),
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const ShopScreen(),
+                    ),
                   );
                 },
               ),

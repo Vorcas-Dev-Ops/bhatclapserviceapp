@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:partner_app/providers/jobs_provider.dart';
 import 'package:partner_app/providers/job_dispatch_provider.dart';
+import 'package:partner_app/screens/jobs/job_details_screen.dart';
 
 class CalendarScreen extends ConsumerStatefulWidget {
   const CalendarScreen({super.key});
@@ -61,41 +62,54 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
     return months[month - 1];
   }
 
-  int _getStatusForDate(DateTime date, List<dynamic> bookings, bool isOnline) {
-    // Check if there are bookings on this date
+  int _getStatusForDate(DateTime date, List<dynamic> bookings, List<JobRequestModel> newJobs, bool isOnline) {
+    if (!isOnline) {
+      return 0; // Red cross if provider is OFFLINE / Emergency break
+    }
+
     final dateBookings = bookings.where((b) {
-      if (b['scheduled_at'] == null) return false;
+      final sched = b['scheduled_at'] ?? b['scheduled_date'] ?? b['booking_date'] ?? b['date'] ?? b['createdAt'];
+      if (sched == null) return false;
       try {
-        final bDate = DateTime.parse(b['scheduled_at']);
+        final bDate = DateTime.parse(sched.toString()).toLocal();
         return _isSameDay(bDate, date);
       } catch (_) {
         return false;
       }
     }).toList();
 
-    if (dateBookings.isNotEmpty) {
+    final dateJobs = newJobs.where((j) {
+      if (j.scheduledAt.isEmpty) return false;
+      try {
+        final jDate = DateTime.parse(j.scheduledAt).toLocal();
+        return _isSameDay(jDate, date);
+      } catch (_) {
+        return false;
+      }
+    }).toList();
+
+    if (dateBookings.isNotEmpty || dateJobs.isNotEmpty) {
       final hasActive = dateBookings.any((b) => 
-        ['accepted', 'started', 'waiting_start_otp', 'waiting_end_otp', 'in_progress']
-        .contains(b['status'])
-      );
-      if (hasActive) return 2; // orange clock (booking scheduled)
+        ['accepted', 'started', 'waiting_start_otp', 'waiting_end_otp', 'in_progress', 'assigned', 'pending']
+        .contains(b['status']?.toString().toLowerCase())
+      ) || dateJobs.isNotEmpty;
+
+      if (hasActive) return 2; // Orange clock (booking scheduled / pending)
       
-      final allCompleted = dateBookings.every((b) => b['status'] == 'completed');
-      if (allCompleted) return 1; // green check (completed)
+      final allCompleted = dateBookings.every((b) => b['status']?.toString().toLowerCase() == 'completed');
+      if (allCompleted) return 1; // Green check (completed)
     }
 
-    if (!isOnline) {
-      return 0; // Show cross (unavailable) for all days if OFFLINE
-    }
-
-    // Default fallback: Weekdays available (1), weekends busy/cross (0)
     if (date.weekday == DateTime.saturday || date.weekday == DateTime.sunday) {
-      return 0; // red cross
+      return 0; // Red cross on weekends by default unless booked
     }
-    return 1; // green check
+    return 1; // Green check on available weekdays
   }
 
   Widget _buildTopBar(BuildContext context) {
+    final dispatchState = ref.watch(jobDispatchProvider);
+    final isOnline = dispatchState.isOnline;
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
       child: Row(
@@ -123,8 +137,12 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
               showDialog(
                 context: context,
                 builder: (context) => AlertDialog(
-                  title: const Text('Emergency Break'),
-                  content: const Text('Are you sure you want to take an emergency break? This will turn off your status and make you offline.'),
+                  title: Text(isOnline ? 'Emergency Break' : 'Resume Work'),
+                  content: Text(
+                    isOnline
+                        ? 'Are you sure you want to take an emergency break? This will turn off your status and make you offline.'
+                        : 'Do you want to turn on your availability and resume work?',
+                  ),
                   actions: [
                     TextButton(
                       onPressed: () => Navigator.pop(context),
@@ -135,20 +153,30 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                         Navigator.pop(context);
                         ref.read(jobDispatchProvider.notifier).toggleAvailability();
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Availability status updated!'), backgroundColor: Colors.red),
+                          SnackBar(
+                            content: Text(isOnline ? 'Emergency break activated (Offline)' : 'Work resumed (Online)!'),
+                            backgroundColor: isOnline ? Colors.red : Colors.green,
+                          ),
                         );
                       },
-                      child: const Text('Yes, Go Offline', style: TextStyle(color: Colors.red)),
+                      child: Text(
+                        isOnline ? 'Yes, Go Offline' : 'Go Online',
+                        style: TextStyle(color: isOnline ? Colors.red : Colors.green, fontWeight: FontWeight.bold),
+                      ),
                     ),
                   ],
                 ),
               );
             },
-            icon: const Icon(Icons.notifications_active_outlined, color: Colors.red, size: 18),
-            label: const Text(
-              'Emergency Break',
+            icon: Icon(
+              isOnline ? Icons.notifications_active_outlined : Icons.play_circle_fill_outlined,
+              color: isOnline ? Colors.red : Colors.green,
+              size: 18,
+            ),
+            label: Text(
+              isOnline ? 'Emergency Break' : 'Resume Work',
               style: TextStyle(
-                color: Colors.red,
+                color: isOnline ? Colors.red : Colors.green,
                 fontWeight: FontWeight.bold,
                 fontSize: 13,
               ),
@@ -218,12 +246,11 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
     );
   }
 
-  Widget _buildCalendarGrid(List<dynamic> bookings, bool isOnline) {
+  Widget _buildCalendarGrid(List<dynamic> bookings, List<JobRequestModel> newJobs, bool isOnline) {
     final weekLabels = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
-    // Generate days dynamically
     final firstDayOfMonth = DateTime(_focusedMonth.year, _focusedMonth.month, 1);
-    final weekdayOffset = firstDayOfMonth.weekday % 7; // Sunday is 0, Monday is 1, etc.
+    final weekdayOffset = firstDayOfMonth.weekday % 7;
 
     final prevMonth = _focusedMonth.month == 1
         ? DateTime(_focusedMonth.year - 1, 12, 1)
@@ -232,7 +259,6 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
 
     final List<Map<String, dynamic>> gridDays = [];
 
-    // Pad previous month days
     for (int i = weekdayOffset - 1; i >= 0; i--) {
       final dayNum = prevMonthDaysCount - i;
       gridDays.add({
@@ -242,7 +268,6 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
       });
     }
 
-    // Current month days
     final currentMonthDaysCount = DateTime(_focusedMonth.year, _focusedMonth.month + 1, 0).day;
     for (int i = 1; i <= currentMonthDaysCount; i++) {
       gridDays.add({
@@ -252,7 +277,6 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
       });
     }
 
-    // Pad next month days to align grid to multiples of 7
     final totalCells = ((gridDays.length + 6) ~/ 7) * 7;
     final nextMonth = _focusedMonth.month == 12
         ? DateTime(_focusedMonth.year + 1, 1, 1)
@@ -306,12 +330,10 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
               final bool isSelected = _isSameDay(date, _selectedDate);
               final bool isCurrentMonth = d['isCurrentMonth'];
 
-              // Retrieve the visual status index
-              final int calculatedStatus = _getStatusForDate(date, bookings, isOnline);
+              final int calculatedStatus = _getStatusForDate(date, bookings, newJobs, isOnline);
 
               Widget statusIcon;
               if (isSelected) {
-                // Tapped active date gets a white access clock under it (status 3 equivalent visual)
                 statusIcon = const Icon(Icons.access_time, color: Colors.white, size: 12);
               } else {
                 if (calculatedStatus == 0) {
@@ -450,33 +472,58 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
     );
   }
 
-  Widget _buildScheduledBookingsSection(List<dynamic> bookings) {
-    // Filter bookings by selected day & status list
+  Widget _buildScheduledBookingsSection(List<dynamic> bookings, List<JobRequestModel> newJobs) {
     final dayBookings = bookings.where((b) {
-      if (b['scheduled_at'] == null) return false;
+      final sched = b['scheduled_at'] ?? b['scheduled_date'] ?? b['booking_date'] ?? b['date'] ?? b['createdAt'];
+      if (sched == null) return false;
       try {
-        final bDate = DateTime.parse(b['scheduled_at']);
+        final bDate = DateTime.parse(sched.toString()).toLocal();
         return _isSameDay(bDate, _selectedDate);
       } catch (_) {
         return false;
       }
     }).toList();
 
+    final dayRequests = newJobs.where((j) {
+      if (j.scheduledAt.isEmpty) return false;
+      try {
+        final jDate = DateTime.parse(j.scheduledAt).toLocal();
+        return _isSameDay(jDate, _selectedDate);
+      } catch (_) {
+        return false;
+      }
+    }).toList();
+
+    final totalItems = dayBookings.length + dayRequests.length;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 24.0, vertical: 12.0),
-          child: Text(
-            'Scheduled Services',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF1C1F3E),
-            ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 12.0),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Scheduled Services',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF1C1F3E),
+                ),
+              ),
+              Text(
+                '$totalItems Item(s)',
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.black45,
+                ),
+              ),
+            ],
           ),
         ),
-        if (dayBookings.isEmpty)
+        if (totalItems == 0)
           const Padding(
             padding: EdgeInsets.symmetric(horizontal: 24.0, vertical: 8.0),
             child: Text(
@@ -484,52 +531,281 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
               style: TextStyle(color: Colors.black38, fontSize: 13),
             ),
           )
-        else
-          ...dayBookings.map((b) {
-            final subservice = b['subservice_id'] ?? {};
-            final serviceName = subservice['subservice_name'] ?? b['variant_name'] ?? 'Cleaning Service';
-            return Container(
-              margin: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 6.0),
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withAlpha(3),
-                    blurRadius: 8,
-                    offset: const Offset(0, 3),
-                  )
-                ],
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          serviceName,
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          '${b['scheduled_at'] != null ? DateTime.parse(b['scheduled_at']).toLocal().toString().split(' ')[0] : 'Today'} at ${b['booking_time'] ?? 'Now'}',
-                          style: const TextStyle(color: Colors.black38, fontSize: 12),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Text(
-                    '₹${b['payable_amount']}',
-                    style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF16155D)),
-                  ),
-                ],
+        else ...[
+          ...dayBookings.map((b) => _buildBookingCard(b, isNewJob: false)),
+          ...dayRequests.map((j) => _buildJobRequestCard(j)),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildBookingCard(dynamic b, {required bool isNewJob}) {
+    final subservice = b['subservice_id'];
+    String serviceName = 'Service Booking';
+    if (subservice is Map && subservice['subservice_name'] != null) {
+      serviceName = subservice['subservice_name'];
+    } else if (b['variant_name'] != null && b['variant_name'].toString().isNotEmpty) {
+      serviceName = b['variant_name'];
+    } else if (b['items'] is List && (b['items'] as List).isNotEmpty) {
+      final firstItem = (b['items'] as List).first;
+      if (firstItem is Map) {
+        serviceName = firstItem['name'] ?? firstItem['subservice_name'] ?? 'Service Booking';
+      }
+    }
+
+    final String status = (b['status'] ?? 'ACCEPTED').toString().toUpperCase();
+    Color statusBgColor = Colors.blue.shade50;
+    Color statusTextColor = const Color(0xFF16155D);
+
+    if (status == 'COMPLETED') {
+      statusBgColor = Colors.green.shade50;
+      statusTextColor = Colors.green.shade800;
+    } else if (status == 'IN_PROGRESS' || status == 'STARTED') {
+      statusBgColor = Colors.purple.shade50;
+      statusTextColor = Colors.purple.shade800;
+    } else if (status == 'CANCELLED' || status == 'REJECTED') {
+      statusBgColor = Colors.red.shade50;
+      statusTextColor = Colors.red.shade800;
+    }
+
+    final double amount = (b['payable_amount'] ?? b['total_amount'] ?? b['final_amount'] ?? b['totalPrice'] ?? 0).toDouble();
+    final String timeSlot = b['booking_time'] ?? b['scheduled_time'] ?? 'Scheduled Slot';
+
+    final customer = b['user_id'] ?? b['customer_id'];
+    String customerName = 'Customer';
+    if (customer is Map) {
+      customerName = customer['name'] ?? customer['phone'] ?? 'Customer';
+    }
+
+    final address = b['address_id'] ?? b['address'];
+    String locationText = '';
+    if (address is Map) {
+      locationText = address['city'] ?? address['address_line'] ?? '';
+    }
+
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 6.0),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withAlpha(5),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          )
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(16),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => JobDetailsScreen(booking: b, isNewJob: isNewJob),
               ),
             );
-          }).toList(),
-      ],
+          },
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        serviceName,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15,
+                          color: Color(0xFF1C1F3E),
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: statusBgColor,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        status,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          color: statusTextColor,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    const Icon(Icons.access_time_outlined, size: 14, color: Colors.black45),
+                    const SizedBox(width: 6),
+                    Text(
+                      timeSlot,
+                      style: const TextStyle(color: Colors.black54, fontSize: 13),
+                    ),
+                    if (locationText.isNotEmpty) ...[
+                      const SizedBox(width: 12),
+                      const Icon(Icons.location_on_outlined, size: 14, color: Colors.black45),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          locationText,
+                          style: const TextStyle(color: Colors.black54, fontSize: 13),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Customer: $customerName',
+                      style: const TextStyle(color: Colors.black45, fontSize: 12, fontWeight: FontWeight.w500),
+                    ),
+                    Text(
+                      '₹${amount.toStringAsFixed(0)}',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                        color: Color(0xFF16155D),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildJobRequestCard(JobRequestModel j) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 6.0),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.amber.shade300, width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.amber.withAlpha(10),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          )
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(16),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => JobDetailsScreen(booking: j.toJson(), isNewJob: true),
+              ),
+            );
+          },
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        j.serviceName,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15,
+                          color: Color(0xFF1C1F3E),
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.amber.shade100,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Text(
+                        'NEW REQUEST',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.amber,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    const Icon(Icons.access_time_outlined, size: 14, color: Colors.black45),
+                    const SizedBox(width: 6),
+                    Text(
+                      j.bookingTime.isNotEmpty ? j.bookingTime : 'Scheduled Slot',
+                      style: const TextStyle(color: Colors.black54, fontSize: 13),
+                    ),
+                    const SizedBox(width: 12),
+                    const Icon(Icons.location_on_outlined, size: 14, color: Colors.black45),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(
+                        j.city,
+                        style: const TextStyle(color: Colors.black54, fontSize: 13),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Location: ${j.address.isNotEmpty ? j.address : j.city}',
+                      style: const TextStyle(color: Colors.black45, fontSize: 12, fontWeight: FontWeight.w500),
+                    ),
+                    Text(
+                      '₹${j.amount.toStringAsFixed(0)}',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                        color: Color(0xFF16155D),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -546,18 +822,25 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
           children: [
             _buildTopBar(context),
             Expanded(
-              child: SingleChildScrollView(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildMonthPicker(),
-                    const SizedBox(height: 8),
-                    _buildCalendarGrid(jobsState.bookings, isOnline),
-                    const SizedBox(height: 8),
-                    _buildSetJobLimit(),
-                    _buildScheduledBookingsSection(jobsState.bookings),
-                    const SizedBox(height: 24),
-                  ],
+              child: RefreshIndicator(
+                color: const Color(0xFF16155D),
+                onRefresh: () async {
+                  await ref.read(jobsProvider.notifier).fetchAllJobs();
+                },
+                child: SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildMonthPicker(),
+                      const SizedBox(height: 8),
+                      _buildCalendarGrid(jobsState.bookings, jobsState.newJobs, isOnline),
+                      const SizedBox(height: 8),
+                      _buildSetJobLimit(),
+                      _buildScheduledBookingsSection(jobsState.bookings, jobsState.newJobs),
+                      const SizedBox(height: 24),
+                    ],
+                  ),
                 ),
               ),
             ),

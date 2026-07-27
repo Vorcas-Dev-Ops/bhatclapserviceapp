@@ -11,6 +11,7 @@ import 'package:partner_app/screens/jobs/job_details_screen.dart';
 import 'package:partner_app/screens/finance/money_screen.dart';
 import 'package:partner_app/screens/finance/add_credits_screen.dart';
 import 'package:partner_app/screens/profile/profile_screen.dart';
+import 'package:partner_app/screens/shop/starter_kit_screen.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -373,6 +374,66 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             },
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildKitBanner() {
+    final profileState = ref.watch(providerProfileProvider);
+    final kitPurchased = profileState.profileData?['kitPurchased'] == true || profileState.profileData?['providerKitCompleted'] == true;
+    final providerName = profileState.profileData?['user_id']?['name'] ?? 'Provider';
+
+    if (kitPurchased) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24.0),
+      child: GestureDetector(
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => StarterKitScreen(providerName: providerName),
+            ),
+          );
+        },
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(16.0),
+          decoration: BoxDecoration(
+            color: const Color(0xFF3B41C5),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.inventory_2_outlined, color: Colors.white),
+              ),
+              const SizedBox(width: 16),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Complete Your Onboarding',
+                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                      'Purchase your mandatory Provider Kit',
+                      style: TextStyle(color: Colors.white70, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.arrow_forward_ios, color: Colors.white, size: 16),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -1151,6 +1212,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           const SizedBox(height: 12),
                           _buildGreetingHeader(),
                           const SizedBox(height: 20),
+                          _buildKitBanner(),
+                          if (ref.watch(providerProfileProvider).profileData?['kitPurchased'] != true && ref.watch(providerProfileProvider).profileData?['providerKitCompleted'] != true)
+                            const SizedBox(height: 20),
                           _buildStatsRow(),
                           const SizedBox(height: 24),
                           _buildUpcomingSchedule(),

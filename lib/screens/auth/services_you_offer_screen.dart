@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:partner_app/providers/catalog_provider.dart';
 import 'package:partner_app/screens/auth/select_sub_categories_screen.dart';
+import 'package:partner_app/screens/auth/tell_us_about_yourself_screen.dart';
 
 class ServicesYouOfferScreen extends ConsumerStatefulWidget {
   const ServicesYouOfferScreen({super.key});
@@ -252,7 +253,16 @@ class _ServicesYouOfferScreenState extends ConsumerState<ServicesYouOfferScreen>
                   SizedBox(
                     height: 54,
                     child: ElevatedButton(
-                      onPressed: () => Navigator.pop(context),
+                      onPressed: () {
+                        if (Navigator.canPop(context)) {
+                          Navigator.pop(context);
+                        } else {
+                          Navigator.pushReplacement(
+                            context,
+                            MaterialPageRoute(builder: (context) => TellUsAboutYourselfScreen()),
+                          );
+                        }
+                      },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFFEFF1FE),
                         foregroundColor: const Color(0xFF16155D),

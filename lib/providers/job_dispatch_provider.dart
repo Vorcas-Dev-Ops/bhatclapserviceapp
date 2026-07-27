@@ -57,6 +57,24 @@ class JobRequestModel {
       expiresAt: json['expires_at'] != null ? DateTime.parse(json['expires_at']) : DateTime.now().add(const Duration(minutes: 5)),
     );
   }
+
+  Map<String, dynamic> toJson() {
+    return {
+      '_id': bookingId.isNotEmpty ? bookingId : requestId,
+      'request_id': requestId,
+      'booking_id': bookingId,
+      'display_id': displayId,
+      'subservice_id': {'subservice_name': serviceName},
+      'payable_amount': amount,
+      'booking_time': bookingTime,
+      'scheduled_at': scheduledAt,
+      'address_id': {
+        'address_line': address,
+        'city': city,
+        'pincode': pincode,
+      },
+    };
+  }
 }
 
 class DispatchState {
@@ -121,6 +139,33 @@ class JobDispatchNotifier extends StateNotifier<DispatchState> {
   Future<bool> toggleAvailability() async {
     final nextStatus = state.isOnline ? 'offline' : 'available';
     print('=== toggleAvailability started. Current online: ${state.isOnline}, nextStatus: $nextStatus ===');
+
+    if (nextStatus == 'available') {
+      try {
+        bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+        if (!serviceEnabled) {
+          state = state.copyWith(error: 'Please enable location services to go online.');
+          return false;
+        }
+
+        LocationPermission permission = await Geolocator.checkPermission();
+        if (permission == LocationPermission.denied) {
+          permission = await Geolocator.requestPermission();
+          if (permission == LocationPermission.denied) {
+            state = state.copyWith(error: 'Location permission is required to go online.');
+            return false;
+          }
+        }
+
+        if (permission == LocationPermission.deniedForever) {
+          state = state.copyWith(error: 'Location permissions are permanently denied, please enable in settings.');
+          return false;
+        }
+      } catch (e) {
+        print('=== toggleAvailability permission check error: $e ===');
+      }
+    }
+
     try {
       final response = await _apiClient.dio.put(
         '/api/providers/availability',
@@ -212,7 +257,8 @@ class JobDispatchNotifier extends StateNotifier<DispatchState> {
       state = state.copyWith(isConnecting: false);
     });
 
-    // Start periodic GPS reporting (every 12 seconds)
+    // Report location immediately, then start periodic GPS reporting (every 12 seconds)
+    _reportLocation();
     _locationTimer = Timer.periodic(const Duration(seconds: 12), (timer) {
       _reportLocation();
     });

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:partner_app/providers/api_providers.dart';
 import 'package:partner_app/providers/provider_profile_provider.dart';
 import 'package:partner_app/screens/auth/identity_verification_screen.dart';
+import 'package:partner_app/screens/auth/services_you_offer_screen.dart';
 
 class SelectServiceLocationScreen extends ConsumerStatefulWidget {
   final bool isEditing;
@@ -323,7 +324,16 @@ class _SelectServiceLocationScreenState extends ConsumerState<SelectServiceLocat
                   SizedBox(
                     height: 54,
                     child: ElevatedButton(
-                      onPressed: () => Navigator.pop(context),
+                      onPressed: () {
+                        if (Navigator.canPop(context)) {
+                          Navigator.pop(context);
+                        } else {
+                          Navigator.pushReplacement(
+                            context,
+                            MaterialPageRoute(builder: (context) => ServicesYouOfferScreen()),
+                          );
+                        }
+                      },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFFEFF1FE),
                         foregroundColor: const Color(0xFF16155D),
