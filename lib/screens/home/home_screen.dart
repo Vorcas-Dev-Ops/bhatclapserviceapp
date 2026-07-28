@@ -6,6 +6,9 @@ import 'package:partner_app/providers/provider_profile_provider.dart';
 import 'package:partner_app/providers/auth_provider.dart';
 import 'package:partner_app/providers/wallet_provider.dart';
 import 'package:partner_app/providers/jobs_provider.dart';
+import 'package:partner_app/providers/provider_analytics_provider.dart';
+import 'package:partner_app/providers/notification_provider.dart';
+import 'package:partner_app/screens/notifications/notifications_screen.dart';
 import 'package:partner_app/screens/jobs/jobs_screen.dart';
 import 'package:partner_app/screens/jobs/job_details_screen.dart';
 import 'package:partner_app/screens/finance/money_screen.dart';
@@ -30,6 +33,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       ref.read(providerProfileProvider.notifier).fetchProfile();
       ref.read(walletProvider.notifier).fetchWalletAndReviews();
       ref.read(jobsProvider.notifier).fetchAllJobs();
+      ref.read(providerAnalyticsProvider.notifier).fetchAnalytics();
+      ref.read(notificationProvider.notifier).fetchNotifications();
     });
   }
 
@@ -113,17 +118,50 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           Row(
             children: [
               // Notification Bell
-              Container(
-                width: 40,
-                height: 40,
-                decoration: const BoxDecoration(
-                  color: Color(0xFFEFF1FE),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.notifications_none_outlined,
-                  color: Color(0xFF16155D),
-                  size: 22,
+              GestureDetector(
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const PartnerNotificationsScreen()),
+                  );
+                },
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Container(
+                      width: 40,
+                      height: 40,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFFEFF1FE),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.notifications_none_outlined,
+                        color: Color(0xFF16155D),
+                        size: 22,
+                      ),
+                    ),
+                    if (ref.watch(notificationProvider).unreadCount > 0)
+                      Positioned(
+                        right: -2,
+                        top: -2,
+                        child: Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: const BoxDecoration(
+                            color: Colors.red,
+                            shape: BoxShape.circle,
+                          ),
+                          child: Text(
+                            '${ref.watch(notificationProvider).unreadCount}',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
               ),
               const SizedBox(width: 12),
@@ -495,9 +533,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final profileState = ref.watch(providerProfileProvider);
     final profile = profileState.profileData;
     
-    final totalJobs = profile?['total_jobs']?.toString() ?? '0';
-    final earnings = profile?['earnings'] != null ? '₹${profile!['earnings']}' : '₹0';
-    final rating = (profile?['overall_rating'] as num?)?.toStringAsFixed(1) ?? '4.8';
+    final analyticsState = ref.watch(providerAnalyticsProvider);
+    final analytics = analyticsState.analyticsData;
+    
+    final totalJobs = analytics?['todayOrders']?.toString() ?? profile?['total_jobs']?.toString() ?? '0';
+    final earnings = analytics?['totalRevenue'] != null ? '₹${analytics!['totalRevenue']}' : (profile?['earnings'] != null ? '₹${profile!['earnings']}' : '₹0');
+    final rating = (profile?['overall_rating'] as num?)?.toStringAsFixed(1) ?? '0.0';
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24.0),

@@ -32,7 +32,7 @@ class _ShopScreenState extends ConsumerState<ShopScreen> {
       'amount': '₹895',
       'icon': Icons.receipt_long,
       'iconColor': Colors.blue,
-      'address': 'Flat 402, Green Valley Apartments, Mumbai',
+      'address': 'Collect the order from the office',
       'step': 4,
     },
     {
@@ -597,15 +597,18 @@ class _ShopScreenState extends ConsumerState<ShopScreen> {
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Icon(Icons.location_on_outlined, color: Colors.grey, size: 20),
+                  const Icon(Icons.store_mall_directory_outlined, color: Colors.grey, size: 20),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text('Delivery Address', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                        const Text('Order Pickup / Delivery', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                         const SizedBox(height: 2),
-                        Text(order['address'], style: const TextStyle(color: Colors.black54, fontSize: 12)),
+                        Text(
+                          'Collect the order from the office',
+                          style: TextStyle(color: Colors.blue.shade900, fontWeight: FontWeight.w600, fontSize: 12),
+                        ),
                       ],
                     ),
                   ),

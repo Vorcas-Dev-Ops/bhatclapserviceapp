@@ -350,9 +350,9 @@ class _StarterKitScreenState extends ConsumerState<StarterKitScreen> {
                         const SizedBox(height: 20),
                         Row(
                           children: [
-                            Icon(Icons.local_shipping_outlined, size: 16, color: Colors.grey.shade600),
+                            Icon(Icons.store_mall_directory_outlined, size: 16, color: Colors.grey.shade600),
                             const SizedBox(width: 4),
-                            Text('Delivered in 5 days via Delhivery', style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+                            Text('Collect the order from the office', style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
                             const SizedBox(width: 16),
                             Icon(Icons.info_outline, size: 16, color: Colors.grey.shade600),
                             const SizedBox(width: 4),

@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:razorpay_flutter/razorpay_flutter.dart';
 import 'package:partner_app/providers/wallet_provider.dart';
+import 'package:partner_app/providers/provider_profile_provider.dart';
 import 'package:partner_app/config/config.dart';
-import 'package:partner_app/widgets/razorpay_gateway_modal.dart';
 
 class AddCreditsScreen extends ConsumerStatefulWidget {
   const AddCreditsScreen({super.key});
@@ -15,11 +17,46 @@ class _AddCreditsScreenState extends ConsumerState<AddCreditsScreen> {
   int _selectedAmount = 100;
   final TextEditingController _creditsController = TextEditingController(text: '100');
   bool _isLoading = false;
+  late Razorpay _razorpay;
+  Completer<Map<String, dynamic>?>? _razorpayCompleter;
+
+  @override
+  void initState() {
+    super.initState();
+    _razorpay = Razorpay();
+    _razorpay.on(Razorpay.EVENT_PAYMENT_SUCCESS, _handlePaymentSuccess);
+    _razorpay.on(Razorpay.EVENT_PAYMENT_ERROR, _handlePaymentError);
+    _razorpay.on(Razorpay.EVENT_EXTERNAL_WALLET, _handleExternalWallet);
+  }
 
   @override
   void dispose() {
+    _razorpay.clear();
     _creditsController.dispose();
     super.dispose();
+  }
+
+  void _handlePaymentSuccess(PaymentSuccessResponse response) {
+    if (_razorpayCompleter != null && !_razorpayCompleter!.isCompleted) {
+      _razorpayCompleter!.complete({
+        'success': true,
+        'razorpay_order_id': response.orderId,
+        'razorpay_payment_id': response.paymentId,
+        'razorpay_signature': response.signature,
+      });
+    }
+  }
+
+  void _handlePaymentError(PaymentFailureResponse response) {
+    if (_razorpayCompleter != null && !_razorpayCompleter!.isCompleted) {
+      _razorpayCompleter!.complete({'success': false, 'message': response.message});
+    }
+  }
+
+  void _handleExternalWallet(ExternalWalletResponse response) {
+    if (_razorpayCompleter != null && !_razorpayCompleter!.isCompleted) {
+      _razorpayCompleter!.complete({'success': false, 'message': 'External wallet'});
+    }
   }
 
   void _selectAmount(int amount) {
@@ -434,12 +471,14 @@ class _AddCreditsScreenState extends ConsumerState<AddCreditsScreen> {
       // 2. Open Razorpay Gateway Modal
       final paymentResult = await _showRazorpayGatewayModal(orderId, keyId, amountInRupees.toDouble());
       if (paymentResult == null || paymentResult['success'] != true) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Payment cancelled.'),
-            backgroundColor: Colors.orange,
-          ),
-        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Payment cancelled.'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
         return;
       }
 
@@ -552,19 +591,31 @@ class _AddCreditsScreenState extends ConsumerState<AddCreditsScreen> {
   }
 
   Future<Map<String, dynamic>?> _showRazorpayGatewayModal(String orderId, String keyId, double amountInRupees) async {
-    return showModalBottomSheet<Map<String, dynamic>>(
-      context: context,
-      isScrollControlled: true,
-      isDismissible: false,
-      enableDrag: false,
-      backgroundColor: Colors.transparent,
-      builder: (context) => PartnerRazorpayGatewayModalSheet(
-        orderId: orderId,
-        keyId: keyId,
-        amount: amountInRupees,
-        title: 'Partner Wallet Credit Recharge',
-      ),
-    );
+    _razorpayCompleter = Completer<Map<String, dynamic>?>();
+
+    final profile = ref.read(providerProfileProvider).profileData;
+    final phone = profile?['user_id']?['phone'] ?? profile?['phone'] ?? '';
+    final email = profile?['user_id']?['email'] ?? profile?['email'] ?? '';
+
+    final options = {
+      'key': Config.razorpayKeyId,
+      'amount': (amountInRupees * 100).toInt(),
+      'name': 'BharathClap Provider',
+      'description': 'Partner Wallet Credit Recharge',
+      'order_id': orderId,
+      'prefill': {
+        'contact': phone,
+        'email': email,
+      },
+    };
+
+    try {
+      _razorpay.open(options);
+    } catch (e) {
+      return {'success': false, 'message': e.toString()};
+    }
+
+    return _razorpayCompleter!.future;
   }
 
   Widget _buildBottomStickyBar() {

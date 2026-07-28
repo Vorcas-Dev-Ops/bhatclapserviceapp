@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:partner_app/providers/provider_profile_provider.dart';
 import 'package:partner_app/providers/wallet_provider.dart';
+import 'package:partner_app/providers/provider_analytics_provider.dart';
 
 class PerformanceScreen extends ConsumerStatefulWidget {
   const PerformanceScreen({super.key});
@@ -16,6 +17,7 @@ class _PerformanceScreenState extends ConsumerState<PerformanceScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(walletProvider.notifier).fetchWalletAndReviews();
+      ref.read(providerAnalyticsProvider.notifier).fetchAnalytics();
     });
   }
 
@@ -150,7 +152,7 @@ class _PerformanceScreenState extends ConsumerState<PerformanceScreen> {
     );
   }
 
-  Widget _buildIndicatorsGrid() {
+  Widget _buildIndicatorsGrid(double rating, int acceptanceRate, int completionRate) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 12.0),
       child: GridView.count(
@@ -162,9 +164,9 @@ class _PerformanceScreenState extends ConsumerState<PerformanceScreen> {
         childAspectRatio: 1.5,
         children: [
           _buildIndicatorCard(
-            header: const Text(
-              '4.8',
-              style: TextStyle(
+            header: Text(
+              rating.toStringAsFixed(1),
+              style: const TextStyle(
                 fontSize: 22,
                 fontWeight: FontWeight.bold,
                 color: Color(0xFF2D3047),
@@ -174,9 +176,9 @@ class _PerformanceScreenState extends ConsumerState<PerformanceScreen> {
             subtextColor: Colors.black38,
           ),
           _buildIndicatorCard(
-            header: const Text(
-              '98%',
-              style: TextStyle(
+            header: Text(
+              '$acceptanceRate%',
+              style: const TextStyle(
                 fontSize: 22,
                 fontWeight: FontWeight.bold,
                 color: Color(0xFF2D3047),
@@ -186,9 +188,9 @@ class _PerformanceScreenState extends ConsumerState<PerformanceScreen> {
             subtextColor: Colors.black38,
           ),
           _buildIndicatorCard(
-            header: const Text(
-              '99%',
-              style: TextStyle(
+            header: Text(
+              '$completionRate%',
+              style: const TextStyle(
                 fontSize: 22,
                 fontWeight: FontWeight.bold,
                 color: Color(0xFF2E7D32),
@@ -303,8 +305,13 @@ class _PerformanceScreenState extends ConsumerState<PerformanceScreen> {
   Widget build(BuildContext context) {
     final walletState = ref.watch(walletProvider);
     final profileState = ref.watch(providerProfileProvider);
+    final analyticsState = ref.watch(providerAnalyticsProvider);
+    final analytics = analyticsState.analyticsData;
+
     final profile = profileState.profileData ?? {};
-    final rating = (profile['average_rating'] as num?)?.toDouble() ?? 5.0;
+    final rating = (profile['average_rating'] as num?)?.toDouble() ?? 0.0;
+    final acceptanceRate = (analytics?['acceptanceRate'] as num?)?.toInt() ?? 100;
+    final completionRate = (analytics?['completionRate'] as num?)?.toInt() ?? 100;
 
     return Scaffold(
       backgroundColor: const Color(0xFFFAFAFC),
@@ -322,7 +329,7 @@ class _PerformanceScreenState extends ConsumerState<PerformanceScreen> {
                       _buildScoreHeader(rating),
                       _buildWeeklyChart(),
                       const SizedBox(height: 8),
-                      _buildIndicatorsGrid(),
+                      _buildIndicatorsGrid(rating, acceptanceRate, completionRate),
                       const SizedBox(height: 8),
                       _buildReviewsSection(walletState.reviews),
                       const SizedBox(height: 24),

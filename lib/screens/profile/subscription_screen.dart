@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:razorpay_flutter/razorpay_flutter.dart';
 import 'package:partner_app/providers/provider_profile_provider.dart';
 import 'package:partner_app/providers/api_providers.dart';
-import 'package:partner_app/widgets/razorpay_gateway_modal.dart';
+import 'package:partner_app/config/config.dart';
 
 class SubscriptionScreen extends ConsumerStatefulWidget {
   const SubscriptionScreen({super.key});
@@ -16,6 +18,8 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
   String _selectedFilter = 'all'; // 'all', '30', '60', '90'
   bool _isLoadingPackages = true;
   List<Map<String, dynamic>> _dbPackages = [];
+  late Razorpay _razorpay;
+  Completer<Map<String, dynamic>?>? _razorpayCompleter;
 
   // Exact MongoDB `leadpackages` database collection records from reference image
   final List<Map<String, dynamic>> _fallbackLeadPackages = [
@@ -131,10 +135,44 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
   @override
   void initState() {
     super.initState();
+    _razorpay = Razorpay();
+    _razorpay.on(Razorpay.EVENT_PAYMENT_SUCCESS, _handlePaymentSuccess);
+    _razorpay.on(Razorpay.EVENT_PAYMENT_ERROR, _handlePaymentError);
+    _razorpay.on(Razorpay.EVENT_EXTERNAL_WALLET, _handleExternalWallet);
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(providerProfileProvider.notifier).fetchProfile();
       _fetchLeadPackagesFromDatabase();
     });
+  }
+
+  @override
+  void dispose() {
+    _razorpay.clear();
+    super.dispose();
+  }
+
+  void _handlePaymentSuccess(PaymentSuccessResponse response) {
+    if (_razorpayCompleter != null && !_razorpayCompleter!.isCompleted) {
+      _razorpayCompleter!.complete({
+        'success': true,
+        'razorpay_order_id': response.orderId,
+        'payment_id': response.paymentId,
+        'razorpay_signature': response.signature,
+      });
+    }
+  }
+
+  void _handlePaymentError(PaymentFailureResponse response) {
+    if (_razorpayCompleter != null && !_razorpayCompleter!.isCompleted) {
+      _razorpayCompleter!.complete({'success': false, 'message': response.message});
+    }
+  }
+
+  void _handleExternalWallet(ExternalWalletResponse response) {
+    if (_razorpayCompleter != null && !_razorpayCompleter!.isCompleted) {
+      _razorpayCompleter!.complete({'success': false, 'message': 'External wallet'});
+    }
   }
 
   Future<void> _fetchLeadPackagesFromDatabase() async {
@@ -202,25 +240,101 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
     }
   }
 
-  void _subscribeToPlan(Map<String, dynamic> plan) {
+  void _subscribeToPlan(Map<String, dynamic> plan) async {
     final double price = (plan['price'] as num).toDouble();
-    final String razorpayKey = 'rzp_test_mock123';
-    final String orderId = 'order_pkg_${DateTime.now().millisecondsSinceEpoch}';
+    final String packageId = plan['id'] ?? '';
+    final apiClient = ref.read(apiClientProvider);
 
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => PartnerRazorpayGatewayModalSheet(
-        orderId: orderId,
-        keyId: razorpayKey,
-        amount: price,
-        title: 'BharatClap ${plan['name']} Package',
-      ),
-    ).then((result) {
-      if (result != null && result is Map && result['success'] == true) {
-        final paymentId = result['payment_id'] ?? 'pay_${DateTime.now().millisecondsSinceEpoch}';
-        ref.read(providerProfileProvider.notifier).fetchProfile();
+    String razorpayOrderId = '';
+    String keyId = Config.razorpayKeyId;
+
+    // 1. Call Backend to create Lead Package Purchase Order
+    try {
+      if (packageId.isNotEmpty) {
+        final orderRes = await apiClient.dio.post(
+          '/api/providers/lead-packages/create-order',
+          data: {'packageId': packageId},
+        );
+
+        if (orderRes.data != null && orderRes.data['success'] == true) {
+          final rzpOrder = orderRes.data['razorpayOrder'];
+          if (rzpOrder != null && rzpOrder['id'] != null) {
+            razorpayOrderId = rzpOrder['id'];
+          }
+          if (orderRes.data['key_id'] != null &&
+              !orderRes.data['key_id'].toString().contains('dummy') &&
+              !orderRes.data['key_id'].toString().contains('mock')) {
+            keyId = orderRes.data['key_id'];
+          }
+        }
+      }
+    } catch (e) {
+      print('Backend createLeadPackagePurchaseOrder error: $e');
+    }
+
+    if (keyId.isEmpty || keyId.contains('dummy') || keyId.contains('mock')) {
+      keyId = Config.razorpayKeyId;
+    }
+
+    if (razorpayOrderId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to initialize payment with server. Please try again.')),
+      );
+      return;
+    }
+
+    Map<String, dynamic>? result;
+
+    _razorpayCompleter = Completer<Map<String, dynamic>?>();
+
+    final profile = ref.read(providerProfileProvider).profileData;
+    final phone = profile?['user_id']?['phone'] ?? profile?['phone'] ?? '';
+    final email = profile?['user_id']?['email'] ?? profile?['email'] ?? '';
+
+    final options = {
+      'key': keyId,
+      'amount': (price * 100).toInt(),
+      'name': 'BharathClap Provider',
+      'description': 'BharatClap ${plan['name']} Package',
+      'order_id': razorpayOrderId,
+      'prefill': {
+        'contact': phone,
+        'email': email,
+      },
+    };
+
+    try {
+      _razorpay.open(options);
+      result = await _razorpayCompleter!.future;
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Payment initiation failed: $e')),
+      );
+      return;
+    }
+
+    if (result != null && result['success'] == true) {
+      final rzpPaymentId = result['payment_id'] ?? 'pay_${DateTime.now().millisecondsSinceEpoch}';
+      final rzpSignature = result['razorpay_signature'] ?? '';
+
+      // 2. Call Backend to verify payment and activate package in MongoDB
+      try {
+        await apiClient.dio.post(
+          '/api/providers/lead-packages/verify',
+          data: {
+            'razorpay_order_id': result['razorpay_order_id'] ?? razorpayOrderId,
+            'razorpay_payment_id': rzpPaymentId,
+            'razorpay_signature': rzpSignature,
+          },
+        );
+      } catch (e) {
+        print('Backend verifyLeadPackagePayment error: $e');
+      }
+
+      // 3. Refresh Provider Profile & Lead Balance in state
+      ref.read(providerProfileProvider.notifier).fetchProfile();
+
+      if (mounted) {
         showDialog(
           context: context,
           builder: (context) => AlertDialog(
@@ -232,7 +346,7 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
               ],
             ),
             content: Text(
-              'Congratulations! ${plan['name']} (${plan['totalLeadsText']}) has been added to your lead wallet.\n\nTransaction ID: $paymentId.',
+              'Congratulations! ${plan['name']} (${plan['totalLeadsText']}) has been activated.\n\nTransaction ID: $rzpPaymentId.',
             ),
             actions: [
               TextButton(
@@ -243,7 +357,7 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
           ),
         );
       }
-    });
+    }
   }
 
   @override

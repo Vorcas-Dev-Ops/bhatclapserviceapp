@@ -273,6 +273,26 @@ class _CategoryProductsScreenState extends ConsumerState<CategoryProductsScreen>
                     },
                   ),
                 ),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEFF6FF),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFFBFDBFE)),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.store_mall_directory_outlined, color: Color(0xFF1E40AF), size: 20),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Order Delivery: Please collect your order from the office.',
+                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF1E40AF)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
                 const SizedBox(height: 16),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -296,7 +316,7 @@ class _CategoryProductsScreenState extends ConsumerState<CategoryProductsScreen>
                         builder: (context) => AlertDialog(
                           title: const Text('Order Placed Successfully!'),
                           content: Text(
-                            'Your equipment order of ₹${totalAmount.toStringAsFixed(0)} has been placed and will be delivered to your registered provider address.',
+                            'Your equipment order of ₹${totalAmount.toStringAsFixed(0)} has been placed successfully. Please collect the order from the office.',
                           ),
                           actions: [
                             TextButton(

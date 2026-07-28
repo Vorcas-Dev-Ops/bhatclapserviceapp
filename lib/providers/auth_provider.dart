@@ -96,9 +96,21 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
   }
 
+  String _cleanPhone(String phone) {
+    String cleaned = phone.replaceAll(RegExp(r'[\s\-\(\)]+'), '');
+    if (cleaned.startsWith('+91')) {
+      cleaned = cleaned.substring(3);
+    } else if (cleaned.startsWith('91') && cleaned.length > 10) {
+      cleaned = cleaned.substring(2);
+    } else if (cleaned.startsWith('+')) {
+      cleaned = cleaned.substring(1);
+    }
+    return cleaned.trim();
+  }
+
   // Step 1: Send OTP to Phone
   Future<bool> sendOtp(String phone) async {
-    final identifier = phone.trim();
+    final identifier = _cleanPhone(phone);
     state = state.copyWith(status: AuthStatus.loading);
     try {
       final response = await _apiClient.dio.post(
@@ -247,7 +259,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
       return false;
     }
 
-    final identifier = phone.trim();
+    final identifier = _cleanPhone(phone);
 
     state = state.copyWith(status: AuthStatus.loading);
     try {
@@ -287,7 +299,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
         } else {
           state = state.copyWith(
             status: AuthStatus.pendingRegistration,
-            pendingPhone: phone,
+            pendingPhone: identifier,
           );
           return true;
         }
@@ -322,6 +334,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
       return false;
     }
 
+    final identifier = _cleanPhone(phone);
+
     state = state.copyWith(status: AuthStatus.loading);
     try {
       final response = await _apiClient.dio.post(
@@ -329,7 +343,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
         data: {
           'name': name,
           'email': email,
-          'phone': phone,
+          'phone': identifier,
           'role': 'provider',
           'gender': gender,
         },

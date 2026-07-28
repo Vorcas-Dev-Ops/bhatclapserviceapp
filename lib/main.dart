@@ -4,6 +4,8 @@ import 'package:partner_app/screens/auth/auth_gate.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'services/server_error_handler.dart';
 
+import 'services/notification_service.dart';
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   try {
@@ -11,6 +13,7 @@ Future<void> main() async {
   } catch (e) {
     print("Error loading .env file: $e");
   }
+  await NotificationService.init();
   runApp(
     const ProviderScope(
       child: MyApp(),
