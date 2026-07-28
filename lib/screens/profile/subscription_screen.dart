@@ -252,7 +252,7 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
     try {
       if (packageId.isNotEmpty) {
         final orderRes = await apiClient.dio.post(
-          '/api/providers/lead-packages/create-order',
+          '/api/providers/lead-packages/purchase',
           data: {'packageId': packageId},
         );
 

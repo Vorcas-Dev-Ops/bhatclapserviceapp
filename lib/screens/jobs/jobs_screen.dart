@@ -679,9 +679,17 @@ class _JobsScreenState extends ConsumerState<JobsScreen> {
         _buildTabsRow(),
         const SizedBox(height: 24),
         Expanded(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 24.0),
-            child: activeView,
+          child: RefreshIndicator(
+            color: const Color(0xFF16155D),
+            onRefresh: () async {
+              await ref.read(providerProfileProvider.notifier).fetchProfile();
+              await ref.read(jobsProvider.notifier).fetchAllJobs();
+            },
+            child: SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.symmetric(horizontal: 24.0),
+              child: activeView,
+            ),
           ),
         ),
       ],

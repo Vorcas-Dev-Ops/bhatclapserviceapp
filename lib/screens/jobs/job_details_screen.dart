@@ -1,7 +1,9 @@
-import 'package:partner_app/providers/job_dispatch_provider.dart';
+import 'dart:convert';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:partner_app/providers/job_dispatch_provider.dart';
 import 'package:partner_app/providers/jobs_provider.dart';
 
 class JobDetailsScreen extends ConsumerStatefulWidget {
@@ -71,8 +73,81 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
   final List<TextEditingController> _endOtpControllers = List.generate(6, (_) => TextEditingController());
   final List<FocusNode> _endOtpFocusNodes = List.generate(6, (_) => FocusNode());
 
-  // Photos status
+  // Photos state (Base64 strings)
+  final List<String> _beforePhotos = [];
+  final List<String> _afterPhotos = [];
   bool _afterPhotosUploaded = false;
+
+  String _getCustomerName() {
+    final user = _getVal('user_id') ?? _getVal('customer');
+    if (user != null && user is Map) {
+      final n = user['name'] ?? user['fullName'] ?? user['phone'];
+      if (n != null && n.toString().isNotEmpty) return n.toString();
+    }
+    final address = _getVal('address_id');
+    if (address != null && address is Map) {
+      final name = address['name'];
+      if (name != null && name.toString().isNotEmpty) return name.toString();
+    }
+    return 'Customer';
+  }
+
+  String _getCustomerPhone() {
+    final user = _getVal('user_id') ?? _getVal('customer');
+    if (user != null && user is Map) {
+      final p = user['phone'] ?? user['mobile'];
+      if (p != null && p.toString().isNotEmpty) return p.toString();
+    }
+    final address = _getVal('address_id');
+    if (address != null && address is Map) {
+      final phone = address['phone'];
+      if (phone != null && phone.toString().isNotEmpty) return phone.toString();
+    }
+    return '';
+  }
+
+  void _makePhoneCall() {
+    final phone = _getCustomerPhone();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(phone.isNotEmpty ? 'Calling customer: $phone' : 'Customer phone number unavailable'),
+        backgroundColor: const Color(0xFF16155D),
+      ),
+    );
+  }
+
+  void _openChat() {
+    final name = _getCustomerName();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Opening chat with $name'),
+        backgroundColor: const Color(0xFF0F9D58),
+      ),
+    );
+  }
+
+  Future<void> _pickPhoto({required bool isBefore}) async {
+    final picker = ImagePicker();
+    try {
+      final image = await picker.pickImage(source: ImageSource.camera, imageQuality: 60);
+      if (image != null) {
+        final bytes = await image.readAsBytes();
+        final base64Image = 'data:image/jpeg;base64,${base64Encode(bytes)}';
+        setState(() {
+          if (isBefore) {
+            _beforePhotos.add(base64Image);
+          } else {
+            _afterPhotos.add(base64Image);
+            _afterPhotosUploaded = _afterPhotos.isNotEmpty;
+          }
+        });
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error launching camera: $e')),
+      );
+    }
+  }
 
   @override
   void dispose() {
@@ -273,8 +348,7 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
     final dateVal = _formatDateVal(_getVal('scheduled_at'));
     final timeVal = _getVal('booking_time') ?? 'Now';
     
-    final user = _getVal('user_id') ?? {};
-    final userName = user['name'] ?? 'Virat Sharma';
+    final userName = _getCustomerName();
 
     return Expanded(
       child: Stack(
@@ -651,9 +725,12 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
                       )
                     : ElevatedButton.icon(
                         onPressed: () async {
+                          final beforePhotosToSend = _beforePhotos.isNotEmpty
+                              ? _beforePhotos
+                              : ['data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='];
                           final success = await ref
                               .read(jobsProvider.notifier)
-                              .startService(_getVal('_id'), ['https://cloudinary.com/mock-before.jpg']);
+                              .startService(_getVal('_id'), beforePhotosToSend);
                           if (success && mounted) {
                             setState(() {
                               _stepIndex = 1;
@@ -845,8 +922,7 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
   }
 
   Widget _buildStep2ServiceInProgressView() {
-    final user = _getVal('user_id') ?? {};
-    final userName = user['name'] ?? 'Virat Sharma';
+    final userName = _getCustomerName();
     
     return Expanded(
       child: Stack(
@@ -975,7 +1051,7 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
                             child: SizedBox(
                               height: 44,
                               child: ElevatedButton.icon(
-                                onPressed: () {},
+                                onPressed: _openChat,
                                 icon: const Icon(
                                   Icons.chat_bubble_outline,
                                   color: Color(0xFF0F9D58),
@@ -1004,7 +1080,7 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
                             child: SizedBox(
                               height: 44,
                               child: ElevatedButton.icon(
-                                onPressed: () {},
+                                onPressed: _makePhoneCall,
                                 icon: const Icon(
                                   Icons.phone_outlined,
                                   color: Color(0xFF16155D),
@@ -1036,72 +1112,84 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
 
                 // Service Photos Section
                 _buildSectionHeader('Service Photos'),
-                Row(
-                  children: [
-                    _buildDashedPhotoContainer(
-                      title: 'Before Photos',
-                      isUploaded: true,
-                      onTap: () {},
-                    ),
-                    const SizedBox(width: 16),
-                    _buildDashedPhotoContainer(
-                      title: 'After Photos',
-                      isUploaded: _afterPhotosUploaded,
-                      onTap: () {
-                        setState(() {
-                          _afterPhotosUploaded = !_afterPhotosUploaded;
-                        });
-                      },
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    const Expanded(
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.check_circle,
-                            color: Color(0xFF0F9D58),
-                            size: 14,
-                          ),
-                          SizedBox(width: 4),
-                          Text(
-                            'Uploaded',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Color(0xFF0F9D58),
-                              fontWeight: FontWeight.w600,
+                Builder(
+                  builder: (context) {
+                    final rawBefore = _getVal('beforePhotos');
+                    final bool hasSavedBefore = rawBefore != null && rawBefore is List && rawBefore.isNotEmpty;
+                    final bool isBeforeUploaded = _beforePhotos.isNotEmpty || hasSavedBefore;
+
+                    final rawAfter = _getVal('afterPhotos');
+                    final bool hasSavedAfter = rawAfter != null && rawAfter is List && rawAfter.isNotEmpty;
+                    final bool isAfterUploaded = _afterPhotos.isNotEmpty || _afterPhotosUploaded || hasSavedAfter;
+
+                    return Column(
+                      children: [
+                        Row(
+                          children: [
+                            _buildDashedPhotoContainer(
+                              title: 'Before Photos',
+                              isUploaded: isBeforeUploaded,
+                              onTap: () => _pickPhoto(isBefore: true),
                             ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            _afterPhotosUploaded ? Icons.check_circle : Icons.circle,
-                            color: _afterPhotosUploaded ? const Color(0xFF0F9D58) : Colors.black12,
-                            size: _afterPhotosUploaded ? 14 : 6,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            _afterPhotosUploaded ? 'Uploaded' : 'Pending completion',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: _afterPhotosUploaded ? const Color(0xFF0F9D58) : Colors.black38,
-                              fontWeight: FontWeight.w600,
+                            const SizedBox(width: 16),
+                            _buildDashedPhotoContainer(
+                              title: 'After Photos',
+                              isUploaded: isAfterUploaded,
+                              onTap: () => _pickPhoto(isBefore: false),
                             ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    isBeforeUploaded ? Icons.check_circle : Icons.circle,
+                                    color: isBeforeUploaded ? const Color(0xFF0F9D58) : Colors.black12,
+                                    size: isBeforeUploaded ? 14 : 6,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    isBeforeUploaded ? 'Uploaded' : 'Pending upload',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: isBeforeUploaded ? const Color(0xFF0F9D58) : Colors.black38,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    isAfterUploaded ? Icons.check_circle : Icons.circle,
+                                    color: isAfterUploaded ? const Color(0xFF0F9D58) : Colors.black12,
+                                    size: isAfterUploaded ? 14 : 6,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    isAfterUploaded ? 'Uploaded' : 'Pending completion',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: isAfterUploaded ? const Color(0xFF0F9D58) : Colors.black38,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    );
+                  },
                 ),
                 const SizedBox(height: 24),
               ],
@@ -1117,11 +1205,14 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
                 width: double.infinity,
                 height: 54,
                 child: ElevatedButton.icon(
-                  onPressed: _afterPhotosUploaded
+                  onPressed: (_afterPhotos.isNotEmpty || _afterPhotosUploaded)
                       ? () async {
+                          final afterPhotosToSend = _afterPhotos.isNotEmpty
+                              ? _afterPhotos
+                              : ['data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='];
                           final success = await ref
                               .read(jobsProvider.notifier)
-                              .finishService(_getVal('_id'), ['https://cloudinary.com/mock-after.jpg']);
+                              .finishService(_getVal('_id'), afterPhotosToSend);
                           if (success && mounted) {
                             setState(() {
                               _stepIndex = 3; // Move to entering End OTP

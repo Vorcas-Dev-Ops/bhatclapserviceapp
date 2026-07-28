@@ -1246,29 +1246,37 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       ? const MoneyScreen()
                       : _currentIndex == 3
                           ? const ProfileScreen()
-                          : SingleChildScrollView(
-                      child: Column(
-                        children: [
-                          _buildTopBar(),
-                          const SizedBox(height: 12),
-                          _buildGreetingHeader(),
-                          const SizedBox(height: 20),
-                          _buildKitBanner(),
-                          if (ref.watch(providerProfileProvider).profileData?['kitPurchased'] != true && ref.watch(providerProfileProvider).profileData?['providerKitCompleted'] != true)
-                            const SizedBox(height: 20),
-                          _buildStatsRow(),
-                          const SizedBox(height: 24),
-                          _buildUpcomingSchedule(),
-                          const SizedBox(height: 24),
-                          _buildBannerCarousel(),
-                          const SizedBox(height: 24),
-                          _buildNewJobRequests(),
-                          const SizedBox(height: 24),
-                          _buildQuickActions(),
-                          const SizedBox(height: 24),
-                        ],
-                      ),
-                    ),
+                          : RefreshIndicator(
+                              color: const Color(0xFF16155D),
+                              onRefresh: () async {
+                                await ref.read(providerProfileProvider.notifier).fetchProfile();
+                                await ref.read(jobsProvider.notifier).fetchAllJobs();
+                              },
+                              child: SingleChildScrollView(
+                                physics: const AlwaysScrollableScrollPhysics(),
+                                child: Column(
+                                  children: [
+                                    _buildTopBar(),
+                                    const SizedBox(height: 12),
+                                    _buildGreetingHeader(),
+                                    const SizedBox(height: 20),
+                                    _buildKitBanner(),
+                                    if (ref.watch(providerProfileProvider).profileData?['kitPurchased'] != true && ref.watch(providerProfileProvider).profileData?['providerKitCompleted'] != true)
+                                      const SizedBox(height: 20),
+                                    _buildStatsRow(),
+                                    const SizedBox(height: 24),
+                                    _buildUpcomingSchedule(),
+                                    const SizedBox(height: 24),
+                                    _buildBannerCarousel(),
+                                    const SizedBox(height: 24),
+                                    _buildNewJobRequests(),
+                                    const SizedBox(height: 24),
+                                    _buildQuickActions(),
+                                    const SizedBox(height: 24),
+                                  ],
+                                ),
+                              ),
+                            ),
             ),
             // Custom Navigation Bar
             Container(
