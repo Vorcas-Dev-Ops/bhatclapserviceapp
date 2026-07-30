@@ -1234,97 +1234,190 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       },
     );
 
-    return Scaffold(
-      backgroundColor: Colors.white,
-      body: SafeArea(
-        child: Column(
-          children: [
-            Expanded(
-              child: _currentIndex == 1
-                  ? const JobsScreen()
-                  : _currentIndex == 2
-                      ? const MoneyScreen()
-                      : _currentIndex == 3
-                          ? const ProfileScreen()
-                          : RefreshIndicator(
-                              color: const Color(0xFF16155D),
-                              onRefresh: () async {
-                                await ref.read(providerProfileProvider.notifier).fetchProfile();
-                                await ref.read(jobsProvider.notifier).fetchAllJobs();
-                              },
-                              child: SingleChildScrollView(
-                                physics: const AlwaysScrollableScrollPhysics(),
-                                child: Column(
-                                  children: [
-                                    _buildTopBar(),
-                                    const SizedBox(height: 12),
-                                    _buildGreetingHeader(),
-                                    const SizedBox(height: 20),
-                                    _buildKitBanner(),
-                                    if (ref.watch(providerProfileProvider).profileData?['kitPurchased'] != true && ref.watch(providerProfileProvider).profileData?['providerKitCompleted'] != true)
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        final shouldExit = await showDialog<bool>(
+          context: context,
+          builder: (context) => Dialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            child: Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: const BoxDecoration(
+                      color: Color(0xFFEEF0FF),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.exit_to_app_rounded,
+                      color: Color(0xFF16155D),
+                      size: 32,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Leave BharathClap?',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF16155D),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Are you sure you want to exit the app?',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey.shade600,
+                      height: 1.4,
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.of(context).pop(false),
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 13),
+                            side: const BorderSide(color: Color(0xFF16155D)),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                          child: const Text(
+                            'Stay',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF16155D),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () => Navigator.of(context).pop(true),
+                          style: ElevatedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 13),
+                            backgroundColor: const Color(0xFF16155D),
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                          child: const Text(
+                            'Exit',
+                            style: TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+        if (shouldExit == true && context.mounted) {
+          // ignore: use_build_context_synchronously
+          Navigator.of(context).pop(true);
+        }
+      },
+      child: Scaffold(
+        backgroundColor: Colors.white,
+        body: SafeArea(
+          child: Column(
+            children: [
+              Expanded(
+                child: _currentIndex == 1
+                    ? const JobsScreen()
+                    : _currentIndex == 2
+                        ? const MoneyScreen()
+                        : _currentIndex == 3
+                            ? const ProfileScreen()
+                            : RefreshIndicator(
+                                color: const Color(0xFF16155D),
+                                onRefresh: () async {
+                                  await ref.read(providerProfileProvider.notifier).fetchProfile();
+                                  await ref.read(jobsProvider.notifier).fetchAllJobs();
+                                },
+                                child: SingleChildScrollView(
+                                  physics: const AlwaysScrollableScrollPhysics(),
+                                  child: Column(
+                                    children: [
+                                      _buildTopBar(),
+                                      const SizedBox(height: 12),
+                                      _buildGreetingHeader(),
                                       const SizedBox(height: 20),
-                                    _buildStatsRow(),
-                                    const SizedBox(height: 24),
-                                    _buildUpcomingSchedule(),
-                                    const SizedBox(height: 24),
-                                    _buildBannerCarousel(),
-                                    const SizedBox(height: 24),
-                                    _buildNewJobRequests(),
-                                    const SizedBox(height: 24),
-                                    _buildQuickActions(),
-                                    const SizedBox(height: 24),
-                                  ],
+                                      _buildKitBanner(),
+                                      if (ref.watch(providerProfileProvider).profileData?['kitPurchased'] != true && ref.watch(providerProfileProvider).profileData?['providerKitCompleted'] != true)
+                                        const SizedBox(height: 20),
+                                      _buildStatsRow(),
+                                      const SizedBox(height: 24),
+                                      _buildUpcomingSchedule(),
+                                      const SizedBox(height: 24),
+                                      _buildBannerCarousel(),
+                                      const SizedBox(height: 24),
+                                      _buildNewJobRequests(),
+                                      const SizedBox(height: 24),
+                                      _buildQuickActions(),
+                                      const SizedBox(height: 24),
+                                    ],
+                                  ),
                                 ),
                               ),
-                            ),
-            ),
-            // Custom Navigation Bar
-            Container(
-              decoration: BoxDecoration(
-                color: Colors.white,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withAlpha(10),
-                    blurRadius: 10,
-                    offset: const Offset(0, -2),
-                  )
-                ],
               ),
-              child: BottomNavigationBar(
-                currentIndex: _currentIndex,
-                onTap: (index) {
-                  setState(() {
-                    _currentIndex = index;
-                  });
-                },
-                backgroundColor: Colors.white,
-                elevation: 0,
-                type: BottomNavigationBarType.fixed,
-                selectedItemColor: const Color(0xFF16155D),
-                unselectedItemColor: Colors.black38,
-                selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-                unselectedLabelStyle: const TextStyle(fontSize: 12),
-                items: const [
-                  BottomNavigationBarItem(
-                    icon: Icon(Icons.home),
-                    label: 'Home',
-                  ),
-                  BottomNavigationBarItem(
-                    icon: Icon(Icons.assignment_outlined),
-                    label: 'Jobs',
-                  ),
-                  BottomNavigationBarItem(
-                    icon: Icon(Icons.account_balance_wallet_outlined),
-                    label: 'Money',
-                  ),
-                  BottomNavigationBarItem(
-                    icon: Icon(Icons.person_outline),
-                    label: 'Profile',
-                  ),
-                ],
+              // Custom Navigation Bar
+              Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withAlpha(10),
+                      blurRadius: 10,
+                      offset: const Offset(0, -2),
+                    )
+                  ],
+                ),
+                child: BottomNavigationBar(
+                  currentIndex: _currentIndex,
+                  onTap: (index) {
+                    setState(() {
+                      _currentIndex = index;
+                    });
+                  },
+                  backgroundColor: Colors.white,
+                  elevation: 0,
+                  type: BottomNavigationBarType.fixed,
+                  selectedItemColor: const Color(0xFF16155D),
+                  unselectedItemColor: Colors.black38,
+                  selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                  unselectedLabelStyle: const TextStyle(fontSize: 12),
+                  items: const [
+                    BottomNavigationBarItem(
+                      icon: Icon(Icons.home),
+                      label: 'Home',
+                    ),
+                    BottomNavigationBarItem(
+                      icon: Icon(Icons.assignment_outlined),
+                      label: 'Jobs',
+                    ),
+                    BottomNavigationBarItem(
+                      icon: Icon(Icons.account_balance_wallet_outlined),
+                      label: 'Money',
+                    ),
+                    BottomNavigationBarItem(
+                      icon: Icon(Icons.person_outline),
+                      label: 'Profile',
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
