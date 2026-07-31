@@ -1,20 +1,62 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:razorpay_flutter/razorpay_flutter.dart';
+import 'package:partner_app/providers/wallet_provider.dart';
+import 'package:partner_app/providers/provider_profile_provider.dart';
+import 'package:partner_app/config/config.dart';
 
-class AddCreditsScreen extends StatefulWidget {
+class AddCreditsScreen extends ConsumerStatefulWidget {
   const AddCreditsScreen({super.key});
 
   @override
-  State<AddCreditsScreen> createState() => _AddCreditsScreenState();
+  ConsumerState<AddCreditsScreen> createState() => _AddCreditsScreenState();
 }
 
-class _AddCreditsScreenState extends State<AddCreditsScreen> {
+class _AddCreditsScreenState extends ConsumerState<AddCreditsScreen> {
   int _selectedAmount = 100;
   final TextEditingController _creditsController = TextEditingController(text: '100');
+  bool _isLoading = false;
+  late Razorpay _razorpay;
+  Completer<Map<String, dynamic>?>? _razorpayCompleter;
+
+  @override
+  void initState() {
+    super.initState();
+    _razorpay = Razorpay();
+    _razorpay.on(Razorpay.EVENT_PAYMENT_SUCCESS, _handlePaymentSuccess);
+    _razorpay.on(Razorpay.EVENT_PAYMENT_ERROR, _handlePaymentError);
+    _razorpay.on(Razorpay.EVENT_EXTERNAL_WALLET, _handleExternalWallet);
+  }
 
   @override
   void dispose() {
+    _razorpay.clear();
     _creditsController.dispose();
     super.dispose();
+  }
+
+  void _handlePaymentSuccess(PaymentSuccessResponse response) {
+    if (_razorpayCompleter != null && !_razorpayCompleter!.isCompleted) {
+      _razorpayCompleter!.complete({
+        'success': true,
+        'razorpay_order_id': response.orderId,
+        'razorpay_payment_id': response.paymentId,
+        'razorpay_signature': response.signature,
+      });
+    }
+  }
+
+  void _handlePaymentError(PaymentFailureResponse response) {
+    if (_razorpayCompleter != null && !_razorpayCompleter!.isCompleted) {
+      _razorpayCompleter!.complete({'success': false, 'message': response.message});
+    }
+  }
+
+  void _handleExternalWallet(ExternalWalletResponse response) {
+    if (_razorpayCompleter != null && !_razorpayCompleter!.isCompleted) {
+      _razorpayCompleter!.complete({'success': false, 'message': 'External wallet'});
+    }
   }
 
   void _selectAmount(int amount) {
@@ -395,6 +437,187 @@ class _AddCreditsScreenState extends State<AddCreditsScreen> {
     );
   }
 
+  Future<void> _handlePayment() async {
+    final int amountInRupees = _selectedAmount * 10;
+    if (amountInRupees < 500) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Minimum recharge amount is ₹500 (50 credits).'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      // 1. Create order
+      final orderRes = await ref.read(walletProvider.notifier).createRechargeOrder(amountInRupees.toDouble());
+      if (orderRes == null || orderRes['rzpOrder'] == null) {
+        throw Exception('Failed to create Razorpay order');
+      }
+
+      final rzpOrder = orderRes['rzpOrder'];
+      final orderId = rzpOrder['id'] ?? '';
+      final keyId = Config.razorpayKeyId;
+
+      setState(() {
+        _isLoading = false;
+      });
+
+      // 2. Open Razorpay Gateway Modal
+      final paymentResult = await _showRazorpayGatewayModal(orderId, keyId, amountInRupees.toDouble());
+      if (paymentResult == null || paymentResult['success'] != true) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Payment cancelled.'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+        return;
+      }
+
+      setState(() {
+        _isLoading = true;
+      });
+
+      // 3. Verify payment on backend
+      final verifySuccess = await ref.read(walletProvider.notifier).verifyRecharge(
+        orderId: paymentResult['razorpay_order_id'],
+        paymentId: paymentResult['razorpay_payment_id'],
+        signature: paymentResult['razorpay_signature'],
+        amount: amountInRupees.toDouble(),
+      );
+
+      setState(() {
+        _isLoading = false;
+      });
+
+      if (verifySuccess && mounted) {
+        _showSuccessDialog();
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Payment verification failed.'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      setState(() {
+        _isLoading = false;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  void _showSuccessDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 16),
+              const Icon(
+                Icons.check_circle_outline,
+                color: Color(0xFF2E7D32),
+                size: 72,
+              ),
+              const SizedBox(height: 24),
+              const Text(
+                'Recharge Successful',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF16155D),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                '₹${(_selectedAmount * 10).toString()} has been credited to your wallet, adding $_selectedAmount credits.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 14,
+                  color: Colors.black54,
+                ),
+              ),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: ElevatedButton(
+                  onPressed: () {
+                    Navigator.pop(context); // Close dialog
+                    Navigator.pop(context); // Pop screen
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF16155D),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: const Text(
+                    'Done',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<Map<String, dynamic>?> _showRazorpayGatewayModal(String orderId, String keyId, double amountInRupees) async {
+    _razorpayCompleter = Completer<Map<String, dynamic>?>();
+
+    final profile = ref.read(providerProfileProvider).profileData;
+    final phone = profile?['user_id']?['phone'] ?? profile?['phone'] ?? '';
+    final email = profile?['user_id']?['email'] ?? profile?['email'] ?? '';
+
+    final options = {
+      'key': Config.razorpayKeyId,
+      'amount': (amountInRupees * 100).toInt(),
+      'name': 'BharathClap Provider',
+      'description': 'Partner Wallet Credit Recharge',
+      'order_id': orderId,
+      'prefill': {
+        'contact': phone,
+        'email': email,
+      },
+    };
+
+    try {
+      _razorpay.open(options);
+    } catch (e) {
+      return {'success': false, 'message': e.toString()};
+    }
+
+    return _razorpayCompleter!.future;
+  }
+
   Widget _buildBottomStickyBar() {
     final int amount = _selectedAmount * 10;
     return Align(
@@ -430,15 +653,7 @@ class _AddCreditsScreenState extends State<AddCreditsScreen> {
             SizedBox(
               height: 52,
               child: ElevatedButton.icon(
-                onPressed: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Added $_selectedAmount credits successfully!'),
-                      backgroundColor: const Color(0xFF2E7D32),
-                    ),
-                  );
-                  Navigator.pop(context);
-                },
+                onPressed: _handlePayment,
                 icon: const Text(
                   'Proceed to Pay',
                   style: TextStyle(
@@ -494,9 +709,19 @@ class _AddCreditsScreenState extends State<AddCreditsScreen> {
               ],
             ),
             _buildBottomStickyBar(),
+            if (_isLoading)
+              Container(
+                color: Colors.black.withOpacity(0.3),
+                child: const Center(
+                  child: CircularProgressIndicator(
+                    color: Color(0xFF16155D),
+                  ),
+                ),
+              ),
           ],
         ),
       ),
     );
   }
 }
+

@@ -47,14 +47,23 @@ class JobsNotifier extends StateNotifier<JobsState> {
   Future<void> fetchAllJobs() async {
     state = state.copyWith(status: JobsStatus.loading);
     try {
+      print('Fetching jobs...');
       // 1. Fetch pending job requests (New)
       final reqResponse = await _apiClient.dio.get('/api/providers/job-requests');
+      print('reqResponse.statusCode: ${reqResponse.statusCode}');
+      print('reqResponse.data: ${reqResponse.data}');
       List<JobRequestModel> newJobsList = [];
       if (reqResponse.statusCode == 200 && reqResponse.data is List) {
         newJobsList = (reqResponse.data as List)
-            .map((item) => JobRequestModel.fromJson(item))
+            .map((item) {
+              print('Parsing item: $item');
+              return JobRequestModel.fromJson(item);
+            })
             .toList();
+      } else {
+        print('reqResponse.data is NOT a List. It is: ${reqResponse.data.runtimeType}');
       }
+      print('newJobsList: $newJobsList');
 
       // 2. Fetch my bookings (Upcoming, Ongoing, Completed)
       final bookingsResponse = await _apiClient.dio.get('/api/bookings/my');
@@ -76,19 +85,38 @@ class JobsNotifier extends StateNotifier<JobsState> {
         status: JobsStatus.error,
         errorMessage: e.response?.data['message'] ?? 'Failed to retrieve jobs list',
       );
+    } catch (e, stack) {
+      print('Error parsing jobs: $e\n$stack');
+      state = state.copyWith(
+        status: JobsStatus.error,
+        errorMessage: 'Failed to parse jobs list: $e',
+      );
     }
   }
 
   // Accept a job request
   Future<bool> acceptJob(String requestId) async {
+    if (requestId.isEmpty) {
+      state = state.copyWith(errorMessage: 'Invalid or missing job request ID');
+      return false;
+    }
     try {
       final response = await _apiClient.dio.post('/api/providers/job-requests/$requestId/accept');
       if (response.statusCode == 200) {
+        state = state.copyWith(errorMessage: null);
         await fetchAllJobs();
         return true;
       }
+      state = state.copyWith(errorMessage: 'Failed to accept job (Status: ${response.statusCode})');
       return false;
-    } catch (_) {
+    } on DioException catch (e) {
+      final msg = e.response?.data is Map
+          ? (e.response?.data['message']?.toString() ?? e.response?.data['error']?.toString())
+          : null;
+      state = state.copyWith(errorMessage: msg ?? 'Failed to accept job');
+      return false;
+    } catch (e) {
+      state = state.copyWith(errorMessage: 'Failed to accept job: $e');
       return false;
     }
   }

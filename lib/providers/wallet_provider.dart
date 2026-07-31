@@ -3,6 +3,7 @@ import 'package:dio/dio.dart';
 import '../services/api_client.dart';
 import 'api_providers.dart';
 import 'provider_profile_provider.dart';
+import 'auth_provider.dart';
 
 enum WalletStatus { initial, loading, loaded, error }
 
@@ -11,6 +12,7 @@ class WalletState {
   final double balance;
   final List<dynamic> transactions;
   final List<dynamic> reviews;
+  final int credits;
   final String? errorMessage;
 
   WalletState({
@@ -18,6 +20,7 @@ class WalletState {
     this.balance = 0.0,
     this.transactions = const [],
     this.reviews = const [],
+    this.credits = 144,
     this.errorMessage,
   });
 
@@ -28,6 +31,7 @@ class WalletState {
     double? balance,
     List<dynamic>? transactions,
     List<dynamic>? reviews,
+    int? credits,
     String? errorMessage,
   }) {
     return WalletState(
@@ -35,6 +39,7 @@ class WalletState {
       balance: balance ?? this.balance,
       transactions: transactions ?? this.transactions,
       reviews: reviews ?? this.reviews,
+      credits: credits ?? this.credits,
       errorMessage: errorMessage ?? this.errorMessage,
     );
   }
@@ -56,10 +61,15 @@ class WalletNotifier extends StateNotifier<WalletState> {
       // 1. Get wallet info
       final walletResponse = await _apiClient.dio.get('/api/wallets/me');
       double balance = 0.0;
-      List<dynamic> transactions = [];
       if (walletResponse.statusCode == 200) {
         balance = (walletResponse.data['balance'] as num?)?.toDouble() ?? 0.0;
-        transactions = walletResponse.data['transactions'] ?? [];
+      }
+
+      // 1b. Get true ledger transactions
+      final txResponse = await _apiClient.dio.get('/api/providers/wallet/transactions');
+      List<dynamic> transactions = [];
+      if (txResponse.statusCode == 200 && txResponse.data is List) {
+        transactions = txResponse.data;
       }
 
       // 2. Get reviews list
@@ -76,6 +86,9 @@ class WalletNotifier extends StateNotifier<WalletState> {
         reviews: reviews,
       );
     } on DioException catch (e) {
+      if (e.response?.statusCode == 401) {
+        _ref.read(authProvider.notifier).logout();
+      }
       state = state.copyWith(
         status: WalletStatus.error,
         errorMessage: e.response?.data['message'] ?? 'Failed to load wallet/reviews info',
@@ -94,6 +107,11 @@ class WalletNotifier extends StateNotifier<WalletState> {
         // Reload wallet details
         await fetchWalletAndReviews();
         return true;
+      }
+      return false;
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 401) {
+        _ref.read(authProvider.notifier).logout();
       }
       return false;
     } catch (_) {
@@ -117,6 +135,72 @@ class WalletNotifier extends StateNotifier<WalletState> {
         },
       );
       return response.statusCode == 201;
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 401) {
+        _ref.read(authProvider.notifier).logout();
+      }
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // Add credits locally
+  void addCredits(int amount) {
+    state = state.copyWith(credits: state.credits + amount);
+  }
+
+  // Create Razorpay recharge order
+  Future<Map<String, dynamic>?> createRechargeOrder(double amount) async {
+    try {
+      final response = await _apiClient.dio.post(
+        '/api/providers/wallet/recharge/create-order',
+        data: {'amount': amount},
+      );
+      if (response.statusCode == 200) {
+        return response.data;
+      }
+      return null;
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 401) {
+        _ref.read(authProvider.notifier).logout();
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // Verify payment and recharge credits
+  Future<bool> verifyRecharge({
+    required String orderId,
+    required String paymentId,
+    required String signature,
+    required double amount,
+  }) async {
+    try {
+      final response = await _apiClient.dio.post(
+        '/api/providers/wallet/recharge/verify',
+        data: {
+          'razorpay_order_id': orderId,
+          'razorpay_payment_id': paymentId,
+          'razorpay_signature': signature,
+          'amount': amount,
+        },
+      );
+      if (response.statusCode == 200 && response.data['success'] == true) {
+        // Refresh wallet and reviews
+        await fetchWalletAndReviews();
+        // Refresh provider profile to update balance, etc.
+        await _ref.read(providerProfileProvider.notifier).fetchProfile();
+        return true;
+      }
+      return false;
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 401) {
+        _ref.read(authProvider.notifier).logout();
+      }
+      return false;
     } catch (_) {
       return false;
     }
@@ -127,3 +211,4 @@ final walletProvider = StateNotifierProvider<WalletNotifier, WalletState>((ref) 
   final apiClient = ref.watch(apiClientProvider);
   return WalletNotifier(apiClient: apiClient, ref: ref);
 });
+

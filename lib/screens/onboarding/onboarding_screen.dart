@@ -40,7 +40,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
     
-    return Scaffold(
+    return PopScope(
+      canPop: false,
+      child: Scaffold(
       backgroundColor: Colors.white,
       body: Stack(
         children: [
@@ -126,7 +128,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                                     height: 56,
                                     child: ElevatedButton(
                                       onPressed: () {
-                                        // TODO: Navigate to Register
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (context) => const LoginScreen(),
+                                          ),
+                                        );
                                       },
                                       style: ElevatedButton.styleFrom(
                                         backgroundColor: const Color(0xFF16155D),
@@ -238,7 +245,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           ),
         ],
       ),
-    );
+    ),
+  );
   }
 
   AnimatedContainer buildDot({int? index}) {

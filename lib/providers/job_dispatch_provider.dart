@@ -1,11 +1,14 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 import 'package:dio/dio.dart';
 import '../services/api_client.dart';
+import '../services/notification_service.dart';
 import 'api_providers.dart';
 import 'auth_provider.dart';
 import 'provider_profile_provider.dart';
+import 'package:geolocator/geolocator.dart';
 
 class JobRequestModel {
   final String requestId;
@@ -38,9 +41,12 @@ class JobRequestModel {
 
   factory JobRequestModel.fromJson(Map<String, dynamic> json) {
     final loc = json['location'] ?? {};
+    final bId = json['booking_id'];
+    final bookingIdStr = bId is Map ? (bId['_id'] ?? '').toString() : bId?.toString() ?? '';
+    
     return JobRequestModel(
-      requestId: json['request_id'] ?? '',
-      bookingId: json['booking_id'] ?? '',
+      requestId: json['request_id'] ?? json['_id'] ?? '',
+      bookingId: bookingIdStr,
       displayId: json['display_id'] ?? '',
       serviceName: json['service_name'] ?? '',
       amount: (json['amount'] as num?)?.toDouble() ?? 0.0,
@@ -52,6 +58,24 @@ class JobRequestModel {
       bookingTime: json['booking_time'] ?? '',
       expiresAt: json['expires_at'] != null ? DateTime.parse(json['expires_at']) : DateTime.now().add(const Duration(minutes: 5)),
     );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      '_id': bookingId.isNotEmpty ? bookingId : requestId,
+      'request_id': requestId,
+      'booking_id': bookingId,
+      'display_id': displayId,
+      'subservice_id': {'subservice_name': serviceName},
+      'payable_amount': amount,
+      'booking_time': bookingTime,
+      'scheduled_at': scheduledAt,
+      'address_id': {
+        'address_line': address,
+        'city': city,
+        'pincode': pincode,
+      },
+    };
   }
 }
 
@@ -90,10 +114,6 @@ class JobDispatchNotifier extends StateNotifier<DispatchState> {
   io.Socket? _socket;
   Timer? _locationTimer;
 
-  // Delhi mock coordinates for testing
-  double _mockLat = 28.6139;
-  double _mockLng = 77.2090;
-
   JobDispatchNotifier({
     required ApiClient apiClient,
     required Ref ref,
@@ -104,7 +124,7 @@ class JobDispatchNotifier extends StateNotifier<DispatchState> {
     _ref.listen(providerProfileProvider, (previous, next) {
       if (next.status == ProfileStatus.loaded && next.profileData != null) {
         final profile = next.profileData!;
-        final isOnline = profile['isOnline'] == true;
+        final isOnline = profile['isOnline'] == true || profile['availability_status'] == 'available';
         if (isOnline != state.isOnline) {
           state = state.copyWith(isOnline: isOnline);
           if (isOnline) {
@@ -120,14 +140,43 @@ class JobDispatchNotifier extends StateNotifier<DispatchState> {
   // Toggle availability status online / offline
   Future<bool> toggleAvailability() async {
     final nextStatus = state.isOnline ? 'offline' : 'available';
+    print('=== toggleAvailability started. Current online: ${state.isOnline}, nextStatus: $nextStatus ===');
+
+    if (nextStatus == 'available') {
+      try {
+        bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+        if (!serviceEnabled) {
+          state = state.copyWith(error: 'Please enable location services to go online.');
+          return false;
+        }
+
+        LocationPermission permission = await Geolocator.checkPermission();
+        if (permission == LocationPermission.denied) {
+          permission = await Geolocator.requestPermission();
+          if (permission == LocationPermission.denied) {
+            state = state.copyWith(error: 'Location permission is required to go online.');
+            return false;
+          }
+        }
+
+        if (permission == LocationPermission.deniedForever) {
+          state = state.copyWith(error: 'Location permissions are permanently denied, please enable in settings.');
+          return false;
+        }
+      } catch (e) {
+        print('=== toggleAvailability permission check error: $e ===');
+      }
+    }
+
     try {
       final response = await _apiClient.dio.put(
         '/api/providers/availability',
         data: {'status': nextStatus},
       );
+      print('=== toggleAvailability response status: ${response.statusCode}, data: ${response.data} ===');
       if (response.statusCode == 200) {
-        final isOnline = response.data['isOnline'] == true;
-        state = state.copyWith(isOnline: isOnline);
+        final isOnline = response.data['isOnline'] == true || response.data['status'] == 'available';
+        state = state.copyWith(isOnline: isOnline, error: null);
         if (isOnline) {
           _connectSocketAndStartTracking();
         } else {
@@ -135,11 +184,39 @@ class JobDispatchNotifier extends StateNotifier<DispatchState> {
         }
         return true;
       }
+    } catch (e) {
+      print('=== toggleAvailability endpoint error: $e. Attempting fallback via /api/providers/me ===');
+    }
+
+    // Fallback: update availability_status via provider profile endpoint if availability endpoint returns 403/error
+    try {
+      final fallbackRes = await _apiClient.dio.put(
+        '/api/providers/me',
+        data: {'availability_status': nextStatus},
+      );
+      if (fallbackRes.statusCode == 200) {
+        final isOnline = nextStatus == 'available';
+        state = state.copyWith(isOnline: isOnline, error: null);
+        if (isOnline) {
+          _connectSocketAndStartTracking();
+        } else {
+          _disconnectSocketAndStopTracking();
+        }
+        return true;
+      }
+    } on DioException catch (e) {
+      print('=== toggleAvailability fallback DioException: $e ===');
+      final msg = e.response?.data['message'] ?? 'Failed to update availability status.';
+      state = state.copyWith(error: msg);
       return false;
     } catch (e) {
-      state = state.copyWith(error: 'Failed to update availability status');
+      print('=== toggleAvailability fallback exception: $e ===');
+      state = state.copyWith(error: 'Failed to update availability status.');
       return false;
     }
+
+    state = state.copyWith(error: 'Failed to update availability status.');
+    return false;
   }
 
   void _connectSocketAndStartTracking() {
@@ -176,13 +253,24 @@ class JobDispatchNotifier extends StateNotifier<DispatchState> {
       print('=== Booking Assigned Received: $data ===');
       final jobRequest = JobRequestModel.fromJson(data);
       state = state.copyWith(activeJob: jobRequest);
+      try {
+        final bId = jobRequest.bookingId.isNotEmpty ? jobRequest.bookingId : jobRequest.requestId;
+        int notifId = bId.hashCode.abs() % 100000;
+        NotificationService.showNotification(
+          id: notifId,
+          title: 'New Booking Request',
+          body: 'You have received a new booking request for ${jobRequest.serviceName} of ₹${jobRequest.amount.toStringAsFixed(0)}.',
+          payload: jsonEncode({'booking_id': bId, 'type': 'job_dispatch'}),
+        );
+      } catch (_) {}
     });
 
     _socket!.onDisconnect((_) {
       state = state.copyWith(isConnecting: false);
     });
 
-    // Start periodic GPS reporting (every 12 seconds)
+    // Report location immediately, then start periodic GPS reporting (every 12 seconds)
+    _reportLocation();
     _locationTimer = Timer.periodic(const Duration(seconds: 12), (timer) {
       _reportLocation();
     });
@@ -202,29 +290,54 @@ class JobDispatchNotifier extends StateNotifier<DispatchState> {
     if (profile == null) return;
 
     final providerId = profile['_id'];
-    
-    // Simulate slight movements around Delhi for GPS active updates
-    _mockLat += 0.0001;
-    _mockLng += 0.0001;
 
-    // Emit live coordinate update to WebSocket
-    if (_socket != null && _socket!.connected) {
-      _socket!.emit('updateLocation', {
-        'providerId': providerId,
-        'lat': _mockLat,
-        'lng': _mockLng,
-      });
-    }
-
-    // Backup: update live coordinates in database via REST API Gateway
     try {
-      await _apiClient.dio.patch(
-        '/api/providers/live-location',
-        data: {
-          'coordinates': [_mockLng, _mockLat],
-        },
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        return; // Location services are disabled.
+      }
+
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          return; // Location permissions are denied
+        }
+      }
+
+      if (permission == LocationPermission.deniedForever) {
+        return; // Permissions are denied forever
+      }
+
+      Position position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
       );
-    } catch (_) {}
+
+      // Emit live coordinate update to WebSocket
+      if (_socket != null && _socket!.connected) {
+        _socket!.emit('updateLocation', {
+          'providerId': providerId,
+          'lat': position.latitude,
+          'lng': position.longitude,
+        });
+      }
+
+      // Backup: update live coordinates in database via REST API Gateway
+      try {
+        await _apiClient.dio.patch(
+          '/api/providers/live-location',
+          data: {
+            'latitude': position.latitude,
+            'longitude': position.longitude,
+            'heading': position.heading,
+            'speed': position.speed,
+            'accuracy': position.accuracy,
+          },
+        );
+      } catch (_) {}
+    } catch (e) {
+      print('=== Location report error: $e ===');
+    }
   }
 
   // Accept incoming job request

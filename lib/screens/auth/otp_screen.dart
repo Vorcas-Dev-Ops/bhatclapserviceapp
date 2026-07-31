@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:partner_app/screens/auth/tell_us_about_yourself_screen.dart';
-import 'package:partner_app/screens/home/home_screen.dart';
+import 'package:partner_app/screens/auth/auth_gate.dart';
 import 'package:partner_app/providers/auth_provider.dart';
 
 class OtpScreen extends ConsumerStatefulWidget {
@@ -191,22 +190,15 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
 
                                 if (success && mounted) {
                                   final currentStatus = ref.read(authProvider).status;
-                                  if (currentStatus == AuthStatus.authenticated) {
-                                    // Navigate to Home dashboard and clear stack
+                                  if (currentStatus == AuthStatus.authenticated ||
+                                      currentStatus == AuthStatus.pendingRegistration) {
+                                    // Navigate to AuthGate to resolve final destination (Tell Us About Yourself, Approval, or Home) and clear stack
                                     Navigator.pushAndRemoveUntil(
                                       context,
                                       MaterialPageRoute(
-                                        builder: (context) => const HomeScreen(),
+                                        builder: (context) => const AuthGate(),
                                       ),
                                       (route) => false,
-                                    );
-                                  } else if (currentStatus == AuthStatus.pendingRegistration) {
-                                    // Navigate to registration page
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (context) => const TellUsAboutYourselfScreen(),
-                                      ),
                                     );
                                   }
                                 } else if (mounted) {

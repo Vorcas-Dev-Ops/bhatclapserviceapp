@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:partner_app/providers/provider_profile_provider.dart';
 import 'package:partner_app/screens/auth/approval_screen.dart';
+import 'package:partner_app/screens/auth/identity_verification_screen.dart';
 
 class BankDetailsScreen extends ConsumerStatefulWidget {
-  const BankDetailsScreen({super.key});
+  final bool isEditing;
+  const BankDetailsScreen({super.key, this.isEditing = false});
 
   @override
   ConsumerState<BankDetailsScreen> createState() => _BankDetailsScreenState();
@@ -27,6 +29,26 @@ class _BankDetailsScreenState extends ConsumerState<BankDetailsScreen> {
     'Bank of Baroda',
     'Union Bank of India',
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final profile = ref.read(providerProfileProvider).profileData;
+      if (profile != null && profile['bank_details'] != null) {
+        final bankDetails = profile['bank_details'];
+        setState(() {
+          _nameController.text = bankDetails['account_holder_name'] ?? '';
+          _accountNoController.text = bankDetails['account_number'] ?? '';
+          _ifscController.text = bankDetails['ifsc_code'] ?? '';
+          final bankName = bankDetails['bank_name'];
+          if (bankName != null && _banks.contains(bankName)) {
+            _selectedBank = bankName;
+          }
+        });
+      }
+    });
+  }
 
   @override
   void dispose() {
@@ -238,7 +260,16 @@ class _BankDetailsScreenState extends ConsumerState<BankDetailsScreen> {
                   SizedBox(
                     height: 54,
                     child: ElevatedButton(
-                      onPressed: () => Navigator.pop(context),
+                      onPressed: () {
+                        if (Navigator.canPop(context)) {
+                          Navigator.pop(context);
+                        } else {
+                          Navigator.pushReplacement(
+                            context,
+                            MaterialPageRoute(builder: (context) => IdentityVerificationScreen()),
+                          );
+                        }
+                      },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFFEFF1FE),
                         foregroundColor: const Color(0xFF16155D),
@@ -296,12 +327,19 @@ class _BankDetailsScreenState extends ConsumerState<BankDetailsScreen> {
                                         );
 
                                     if (success && mounted) {
-                                      Navigator.push(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (context) => const ApprovalScreen(),
-                                        ),
-                                      );
+                                      if (widget.isEditing) {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          const SnackBar(content: Text('Bank details updated successfully!')),
+                                        );
+                                        Navigator.pop(context);
+                                      } else {
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (context) => const ApprovalScreen(),
+                                          ),
+                                        );
+                                      }
                                     } else if (mounted) {
                                       ScaffoldMessenger.of(context).showSnackBar(
                                         SnackBar(

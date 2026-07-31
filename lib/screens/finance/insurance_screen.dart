@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../providers/auth_provider.dart';
 
-class InsuranceScreen extends StatelessWidget {
+class InsuranceScreen extends ConsumerWidget {
   const InsuranceScreen({super.key});
 
   Widget _buildTopBar(BuildContext context) {
@@ -26,7 +28,10 @@ class InsuranceScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildPolicyStatusCard() {
+  Widget _buildPolicyStatusCard(WidgetRef ref) {
+    final authState = ref.watch(authProvider);
+    final name = authState.user?.name?.toUpperCase() ?? 'PARTNER';
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 8.0),
       child: Container(
@@ -51,8 +56,8 @@ class InsuranceScreen extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'MUTHUPANDI P',
+                  Text(
+                    name,
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
@@ -240,45 +245,8 @@ class InsuranceScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildBottomStickyBar() {
-    return Align(
-      alignment: Alignment.bottomCenter,
-      child: Container(
-        color: Colors.white,
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-        child: SizedBox(
-          width: double.infinity,
-          height: 54,
-          child: ElevatedButton.icon(
-            onPressed: () {},
-            icon: const Icon(
-              Icons.add_circle_outline,
-              color: Colors.white,
-              size: 20,
-            ),
-            label: const Text(
-              'File a New Claim',
-              style: TextStyle(
-                fontSize: 16,
-                color: Colors.white,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF16155D),
-              elevation: 0,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return Scaffold(
       backgroundColor: const Color(0xFFFAFAFC),
       body: SafeArea(
@@ -289,10 +257,10 @@ class InsuranceScreen extends StatelessWidget {
                 _buildTopBar(context),
                 Expanded(
                   child: SingleChildScrollView(
-                    padding: const EdgeInsets.only(bottom: 100),
+                    padding: const EdgeInsets.only(bottom: 24),
                     child: Column(
                       children: [
-                        _buildPolicyStatusCard(),
+                        _buildPolicyStatusCard(ref),
                         const SizedBox(height: 8),
                         _buildBenefitsGrid(),
                       ],
@@ -301,7 +269,6 @@ class InsuranceScreen extends StatelessWidget {
                 ),
               ],
             ),
-            _buildBottomStickyBar(),
           ],
         ),
       ),

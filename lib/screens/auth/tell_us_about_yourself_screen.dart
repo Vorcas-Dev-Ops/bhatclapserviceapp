@@ -1,7 +1,38 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:partner_app/screens/auth/services_you_offer_screen.dart';
+import 'package:partner_app/screens/auth/login_screen.dart';
 import 'package:partner_app/providers/auth_provider.dart';
+import 'package:partner_app/providers/provider_profile_provider.dart';
+
+class DobInputFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    if (newValue.text.length < oldValue.text.length) {
+      return newValue;
+    }
+
+    final digitsOnly = newValue.text.replaceAll(RegExp(r'\D'), '');
+    final buffer = StringBuffer();
+
+    for (int i = 0; i < digitsOnly.length && i < 8; i++) {
+      if (i == 2 || i == 4) {
+        buffer.write('/');
+      }
+      buffer.write(digitsOnly[i]);
+    }
+
+    final formatted = buffer.toString();
+    return TextEditingValue(
+      text: formatted,
+      selection: TextSelection.collapsed(offset: formatted.length),
+    );
+  }
+}
 
 class TellUsAboutYourselfScreen extends ConsumerStatefulWidget {
   const TellUsAboutYourselfScreen({super.key});
@@ -15,16 +46,72 @@ class _TellUsAboutYourselfScreenState extends ConsumerState<TellUsAboutYourselfS
   final _nameController = TextEditingController();
   final _dobController = TextEditingController();
   final _emailController = TextEditingController();
+  final _languageController = TextEditingController();
   
   String? _selectedGender;
   String _selectedExperience = '0-1 years';
-  List<String> _selectedLanguages = ['English', 'Hindi', 'Kannada'];
+  List<String> _selectedLanguages = [];
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _populateFields();
+    });
+  }
+
+  void _populateFields() {
+    final user = ref.read(authProvider).user;
+    if (user != null) {
+      if (_nameController.text.isEmpty && user.name != null && user.name!.isNotEmpty) {
+        _nameController.text = user.name!;
+      }
+      if (_emailController.text.isEmpty && user.email != null && user.email!.isNotEmpty) {
+        _emailController.text = user.email!;
+      }
+      if (_selectedGender == null && user.gender != null && user.gender!.isNotEmpty) {
+        final g = user.gender!.trim().toLowerCase();
+        if (g == 'male') {
+          _selectedGender = 'Male';
+        } else if (g == 'female') {
+          _selectedGender = 'Female';
+        } else if (g == 'other') {
+          _selectedGender = 'Other';
+        }
+      }
+    }
+
+    final profile = ref.read(providerProfileProvider).profileData;
+    final userData = profile?['user_id'];
+    if (userData is Map) {
+      if (_nameController.text.isEmpty && userData['name'] != null && userData['name'].toString().isNotEmpty) {
+        _nameController.text = userData['name'].toString();
+      }
+      if (_emailController.text.isEmpty && userData['email'] != null && userData['email'].toString().isNotEmpty) {
+        _emailController.text = userData['email'].toString();
+      }
+      if (_selectedGender == null && userData['gender'] != null && userData['gender'].toString().isNotEmpty) {
+        final g = userData['gender'].toString().trim().toLowerCase();
+        if (g == 'male') {
+          _selectedGender = 'Male';
+        } else if (g == 'female') {
+          _selectedGender = 'Female';
+        } else if (g == 'other') {
+          _selectedGender = 'Other';
+        }
+      }
+    }
+    if (mounted) {
+      setState(() {});
+    }
+  }
 
   @override
   void dispose() {
     _nameController.dispose();
     _dobController.dispose();
     _emailController.dispose();
+    _languageController.dispose();
     super.dispose();
   }
 
@@ -34,6 +121,7 @@ class _TellUsAboutYourselfScreenState extends ConsumerState<TellUsAboutYourselfS
       initialDate: DateTime.now().subtract(const Duration(days: 365 * 18)),
       firstDate: DateTime(1900),
       lastDate: DateTime.now(),
+      locale: const Locale('en', 'GB'),
       builder: (context, child) {
         return Theme(
           data: Theme.of(context).copyWith(
@@ -49,56 +137,65 @@ class _TellUsAboutYourselfScreenState extends ConsumerState<TellUsAboutYourselfS
     );
     if (picked != null) {
       setState(() {
-        _dobController.text = "${picked.month.toString().padLeft(2, '0')}/${picked.day.toString().padLeft(2, '0')}/${picked.year}";
+        _dobController.text = "${picked.day.toString().padLeft(2, '0')}/${picked.month.toString().padLeft(2, '0')}/${picked.year}";
       });
     }
   }
 
   void _addLanguage() {
-    final List<String> availableLanguages = [
-      'Tamil', 'Telugu', 'Bengali', 'Marathi', 'Gujarati', 'Punjabi', 'Malayalam'
-    ];
-    final unselected = availableLanguages.where((l) => !_selectedLanguages.contains(l)).toList();
-    if (unselected.isEmpty) return;
+    final lang = _languageController.text.trim();
+    if (lang.isNotEmpty) {
+      // Capitalize first letter for neat display
+      final capitalized = lang[0].toUpperCase() + lang.substring(1);
+      if (!_selectedLanguages.contains(capitalized)) {
+        setState(() {
+          _selectedLanguages.add(capitalized);
+          _languageController.clear();
+        });
+      }
+    }
+  }
 
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Add Language'),
-        content: SizedBox(
-          width: double.maxFinite,
-          child: ListView.builder(
-            shrinkWrap: true,
-            itemCount: unselected.length,
-            itemBuilder: (context, index) {
-              return ListTile(
-                title: Text(unselected[index]),
-                onTap: () {
-                  setState(() {
-                    _selectedLanguages.add(unselected[index]);
-                  });
-                  Navigator.pop(context);
-                },
-              );
-            },
-          ),
-        ),
-      ),
-    );
+  Future<void> _handleGoBack() async {
+    await ref.read(authProvider.notifier).logout();
+    if (mounted) {
+      if (Navigator.canPop(context)) {
+        Navigator.pop(context);
+      } else {
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (context) => LoginScreen()),
+          (route) => false,
+        );
+      }
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
+    ref.listen(providerProfileProvider, (_, next) {
+      if (next.status == ProfileStatus.loaded) {
+        _populateFields();
+      }
+    });
+
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) {
+          _handleGoBack();
+        }
+      },
+      child: Scaffold(
         backgroundColor: Colors.white,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.black87),
-          onPressed: () => Navigator.pop(context),
+        appBar: AppBar(
+          backgroundColor: Colors.white,
+          elevation: 0,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back, color: Colors.black87),
+            onPressed: _handleGoBack,
+          ),
         ),
-      ),
       body: SafeArea(
         child: Column(
           children: [
@@ -173,14 +270,23 @@ class _TellUsAboutYourselfScreenState extends ConsumerState<TellUsAboutYourselfS
                       _buildLabel('Date of Birth'),
                       TextFormField(
                         controller: _dobController,
-                        readOnly: true,
-                        onTap: () => _selectDate(context),
-                        decoration: _buildInputDecoration('mm/dd/yyyy').copyWith(
-                          suffixIcon: const Icon(Icons.calendar_month, color: Color(0xFF16155D)),
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                          DobInputFormatter(),
+                        ],
+                        decoration: _buildInputDecoration('DD/MM/YYYY').copyWith(
+                          suffixIcon: IconButton(
+                            icon: const Icon(Icons.calendar_month, color: Color(0xFF16155D)),
+                            onPressed: () => _selectDate(context),
+                          ),
                         ),
                         validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return 'Please select your date of birth';
+                          if (value == null || value.trim().isEmpty) {
+                            return 'Please enter your date of birth';
+                          }
+                          if (value.length < 10) {
+                            return 'Please enter a valid date (DD/MM/YYYY)';
                           }
                           return null;
                         },
@@ -220,19 +326,29 @@ class _TellUsAboutYourselfScreenState extends ConsumerState<TellUsAboutYourselfS
 
                       // Languages
                       _buildLabel('Languages'),
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFF5F6FA),
-                          borderRadius: BorderRadius.circular(12),
+                      TextFormField(
+                        controller: _languageController,
+                        decoration: _buildInputDecoration('Type language (e.g. English, Tamil)').copyWith(
+                          suffixIcon: IconButton(
+                            icon: const Icon(Icons.add_circle, color: Color(0xFF16155D), size: 28),
+                            onPressed: _addLanguage,
+                          ),
                         ),
-                        child: Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          crossAxisAlignment: WrapCrossAlignment.center,
-                          children: [
-                            ..._selectedLanguages.map((lang) => Chip(
+                        onFieldSubmitted: (_) => _addLanguage(),
+                      ),
+                      if (_selectedLanguages.isNotEmpty) ...[
+                        const SizedBox(height: 12),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF5F6FA),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: _selectedLanguages.map((lang) => Chip(
                               label: Text(
                                 lang,
                                 style: const TextStyle(fontSize: 14, color: Colors.black87),
@@ -249,24 +365,10 @@ class _TellUsAboutYourselfScreenState extends ConsumerState<TellUsAboutYourselfS
                                 side: BorderSide.none,
                               ),
                               padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                            )),
-                            GestureDetector(
-                              onTap: _addLanguage,
-                              child: const Padding(
-                                padding: EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
-                                child: Text(
-                                  'Add more...',
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    color: Colors.black54,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                              ),
-                            )
-                          ],
+                            )).toList(),
+                          ),
                         ),
-                      ),
+                      ],
                       const SizedBox(height: 40),
                     ],
                   ),
@@ -366,7 +468,8 @@ class _TellUsAboutYourselfScreenState extends ConsumerState<TellUsAboutYourselfS
           ],
         ),
       ),
-    );
+    ),
+  );
   }
 
   Widget _buildLabel(String text) {

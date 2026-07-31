@@ -63,15 +63,20 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
   // Check if user session already exists
   Future<void> checkAuth() async {
+    print('=== AuthProvider: checkAuth started ===');
     state = state.copyWith(status: AuthStatus.loading);
     final token = await _tokenStorage.getAccessToken();
+    print('=== AuthProvider: getAccessToken returned: $token ===');
     if (token == null || token.isEmpty) {
+      print('=== AuthProvider: token is null or empty, setting unauthenticated ===');
       state = state.copyWith(status: AuthStatus.unauthenticated);
       return;
     }
 
     try {
+      print('=== AuthProvider: requesting /api/users/me ===');
       final response = await _apiClient.dio.get('/api/users/me');
+      print('=== AuthProvider: /api/users/me status code: ${response.statusCode} ===');
       if (response.statusCode == 200) {
         final userData = response.data['user'] ?? response.data;
         final userModel = UserModel.fromJson(userData);
@@ -79,38 +84,159 @@ class AuthNotifier extends StateNotifier<AuthState> {
           status: AuthStatus.authenticated,
           user: userModel,
         );
+        print('=== AuthProvider: authenticated user ${userModel.name} ===');
       } else {
+        print('=== AuthProvider: status code not 200, setting unauthenticated ===');
         state = state.copyWith(status: AuthStatus.unauthenticated);
       }
     } catch (e) {
+      print('=== AuthProvider: checkAuth threw exception: $e ===');
       // If endpoint check fails, token might be invalid or expired (and refresh failed)
       state = state.copyWith(status: AuthStatus.unauthenticated);
     }
   }
 
+  String _cleanPhone(String phone) {
+    String cleaned = phone.replaceAll(RegExp(r'[\s\-\(\)]+'), '');
+    if (cleaned.startsWith('+91')) {
+      cleaned = cleaned.substring(3);
+    } else if (cleaned.startsWith('91') && cleaned.length > 10) {
+      cleaned = cleaned.substring(2);
+    } else if (cleaned.startsWith('+')) {
+      cleaned = cleaned.substring(1);
+    }
+    return cleaned.trim();
+  }
+
   // Step 1: Send OTP to Phone
   Future<bool> sendOtp(String phone) async {
+    final identifier = _cleanPhone(phone);
     state = state.copyWith(status: AuthStatus.loading);
     try {
       final response = await _apiClient.dio.post(
         '/api/users/send-otp',
         data: {
-          'identifier': phone,
+          'identifier': identifier,
           'role': 'provider',
           'useEmail': false,
-          'mode': 'register',
+          'mode': 'login',
         },
       );
+
       if (response.statusCode == 200) {
         state = state.copyWith(
           status: AuthStatus.unauthenticated,
-          pendingPhone: phone,
+          pendingPhone: identifier,
         );
         return true;
       }
       state = state.copyWith(
         status: AuthStatus.error,
         errorMessage: response.data['message'] ?? 'Failed to send OTP',
+      );
+      return false;
+    } on DioException catch (e) {
+      state = state.copyWith(
+        status: AuthStatus.error,
+        errorMessage: e.response?.data['message'] ?? 'Network error occurred',
+      );
+      return false;
+    }
+  }
+
+  // Google Sign In
+  Future<bool> signInWithGoogle(String googleToken) async {
+    state = state.copyWith(status: AuthStatus.loading);
+    try {
+      final response = await _apiClient.dio.post(
+        '/api/users/google-login',
+        data: {
+          'token': googleToken,
+          'role': 'provider', // Backend requires this for partner app login if modified, else it ignores it
+        },
+      );
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final data = response.data;
+        if (data['user'] != null) {
+          final userJson = data['user'];
+          final token = userJson['token'];
+          final userId = userJson['_id'];
+          final role = userJson['role'] ?? 'provider';
+
+          final refreshToken = await _tokenStorage.getRefreshToken() ?? '';
+
+          await _tokenStorage.saveTokens(
+            accessToken: token,
+            refreshToken: refreshToken,
+            userId: userId,
+            userRole: role,
+          );
+
+          final userModel = UserModel.fromJson(userJson);
+          state = AuthState(
+            status: AuthStatus.authenticated,
+            user: userModel,
+          );
+          return true;
+        }
+      }
+      
+      state = state.copyWith(
+        status: AuthStatus.error,
+        errorMessage: response.data['message'] ?? 'Invalid response from server',
+      );
+      return false;
+    } on DioException catch (e) {
+      state = state.copyWith(
+        status: AuthStatus.error,
+        errorMessage: e.response?.data['message'] ?? 'Network error occurred',
+      );
+      return false;
+    }
+  }
+
+  // Email & Password Sign In
+  Future<bool> signInWithEmail(String email, String password) async {
+    state = state.copyWith(status: AuthStatus.loading);
+    try {
+      final response = await _apiClient.dio.post(
+        '/api/users/login',
+        data: {
+          'email': email.trim(),
+          'password': password,
+        },
+      );
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final data = response.data;
+        final userJson = data['user'] ?? data;
+        final token = data['token'] ?? userJson['token'];
+        final userId = userJson['_id'] ?? data['_id'];
+        final role = userJson['role'] ?? data['role'] ?? 'provider';
+
+        final refreshToken = await _tokenStorage.getRefreshToken() ?? '';
+
+        if (token != null) {
+          await _tokenStorage.saveTokens(
+            accessToken: token,
+            refreshToken: refreshToken,
+            userId: userId,
+            userRole: role,
+          );
+        }
+
+        final userModel = UserModel.fromJson(userJson);
+        state = AuthState(
+          status: AuthStatus.authenticated,
+          user: userModel,
+        );
+        return true;
+      }
+
+      state = state.copyWith(
+        status: AuthStatus.error,
+        errorMessage: response.data['message'] ?? 'Invalid email or password',
       );
       return false;
     } on DioException catch (e) {
@@ -133,27 +259,28 @@ class AuthNotifier extends StateNotifier<AuthState> {
       return false;
     }
 
+    final identifier = _cleanPhone(phone);
+
     state = state.copyWith(status: AuthStatus.loading);
     try {
       final response = await _apiClient.dio.post(
         '/api/users/verify-otp',
         data: {
-          'identifier': phone,
+          'identifier': identifier,
           'otp': otp,
           'useEmail': false,
         },
       );
 
+      final data = response.data;
+      final userJson = data?['user'];
+
       if (response.statusCode == 200) {
-        final data = response.data;
-        if (data['user'] != null && data['user']['_id'] != 'pending_verification') {
-          // User exists, save tokens
-          final userJson = data['user'];
+        if (userJson != null && userJson['_id'] != 'pending_verification') {
           final token = userJson['token'];
           final userId = userJson['_id'];
           final role = userJson['role'] ?? 'provider';
 
-          // Extract refresh token from Set-Cookie header parsed in Interceptor
           final refreshToken = await _tokenStorage.getRefreshToken() ?? '';
 
           await _tokenStorage.saveTokens(
@@ -170,14 +297,14 @@ class AuthNotifier extends StateNotifier<AuthState> {
           );
           return true;
         } else {
-          // New User, needs to fill registration details
           state = state.copyWith(
             status: AuthStatus.pendingRegistration,
-            pendingPhone: phone,
+            pendingPhone: identifier,
           );
           return true;
         }
       }
+
       state = state.copyWith(
         status: AuthStatus.error,
         errorMessage: response.data['message'] ?? 'OTP verification failed',
@@ -207,6 +334,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
       return false;
     }
 
+    final identifier = _cleanPhone(phone);
+
     state = state.copyWith(status: AuthStatus.loading);
     try {
       final response = await _apiClient.dio.post(
@@ -214,7 +343,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
         data: {
           'name': name,
           'email': email,
-          'phone': phone,
+          'phone': identifier,
           'role': 'provider',
           'gender': gender,
         },
@@ -251,6 +380,31 @@ class AuthNotifier extends StateNotifier<AuthState> {
       state = state.copyWith(
         status: AuthStatus.error,
         errorMessage: e.response?.data['message'] ?? 'Error during registration',
+      );
+      return false;
+    }
+  }
+
+  // Update user profile image (Selfie)
+  Future<bool> updateProfileImage(String base64Image) async {
+    try {
+      final response = await _apiClient.dio.put(
+        '/api/users/me',
+        data: {
+          'profile_image': base64Image,
+        },
+      );
+      if (response.statusCode == 200) {
+        final userData = response.data['user'] ?? response.data;
+        final userModel = UserModel.fromJson(userData);
+        state = state.copyWith(user: userModel);
+        return true;
+      }
+      return false;
+    } on DioException catch (e) {
+      print('=== AuthNotifier: updateProfileImage exception: status=${e.response?.statusCode}, data=${e.response?.data}, error=${e.message} ===');
+      state = state.copyWith(
+        errorMessage: e.response?.data['message'] ?? 'Failed to upload selfie profile picture',
       );
       return false;
     }

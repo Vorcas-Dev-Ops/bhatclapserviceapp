@@ -1,10 +1,24 @@
+import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:partner_app/providers/job_dispatch_provider.dart';
 import 'package:partner_app/providers/provider_profile_provider.dart';
+import 'package:partner_app/providers/auth_provider.dart';
+import 'package:partner_app/providers/wallet_provider.dart';
+import 'package:partner_app/providers/jobs_provider.dart';
+import 'package:partner_app/providers/provider_analytics_provider.dart';
+import 'package:partner_app/providers/notification_provider.dart';
+import 'package:partner_app/screens/notifications/notifications_screen.dart';
 import 'package:partner_app/screens/jobs/jobs_screen.dart';
+import 'package:partner_app/screens/jobs/job_details_screen.dart';
 import 'package:partner_app/screens/finance/money_screen.dart';
+import 'package:partner_app/screens/finance/add_credits_screen.dart';
 import 'package:partner_app/screens/profile/profile_screen.dart';
+import 'package:partner_app/screens/shop/starter_kit_screen.dart';
+import 'package:partner_app/screens/profile/referral_screen.dart';
+import 'package:partner_app/services/notification_service.dart';
+import 'package:partner_app/services/partner_notification_sync_service.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -15,17 +29,81 @@ class HomeScreen extends ConsumerStatefulWidget {
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   int _currentIndex = 0;
+  StreamSubscription<String>? _notificationSub;
 
   @override
   void initState() {
     super.initState();
+    _notificationSub = NotificationService.selectNotificationStream.stream.listen((payload) {
+      _handleNotificationClick(payload);
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(providerProfileProvider.notifier).fetchProfile();
+      ref.read(walletProvider.notifier).fetchWalletAndReviews();
+      ref.read(jobsProvider.notifier).fetchAllJobs();
+      ref.read(providerAnalyticsProvider.notifier).fetchAnalytics();
+      PartnerNotificationSyncService.startSync(ref);
     });
   }
 
+  @override
+  void dispose() {
+    _notificationSub?.cancel();
+    PartnerNotificationSyncService.stopSync();
+    super.dispose();
+  }
+
+  void _handleNotificationClick(String payload) {
+    try {
+      Map<String, dynamic> data = {};
+      if (payload.startsWith('{')) {
+        data = jsonDecode(payload);
+      }
+      final bookingId = data['booking_id'] ?? data['bookingId'] ?? data['booking'] ?? data['request_id'];
+      if (bookingId != null && bookingId.toString().isNotEmpty && mounted) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => JobDetailsScreen(bookingId: bookingId.toString()),
+          ),
+        );
+      } else if (mounted) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (context) => const PartnerNotificationsScreen()),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (context) => const PartnerNotificationsScreen()),
+        );
+      }
+    }
+  }
+
+  void _navigateToDetails(dynamic booking, {bool isNewJob = false}) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => JobDetailsScreen(booking: booking, isNewJob: isNewJob),
+      ),
+    );
+  }
+
   Widget _buildTopBar() {
-    final dispatchState = ref.watch(jobDispatchProvider);
+    final profileState = ref.watch(providerProfileProvider);
+    final profile = profileState.profileData;
+    
+    int creditsVal = 0;
+    if (profile != null) {
+      final walletBalance = profile['walletBalance'] ?? 0.0;
+      final reservedBalance = profile['reservedBalance'] ?? 0.0;
+      final creditLimit = profile['creditLimit'] ?? 500.0;
+      final availableCredit = (walletBalance as num).toDouble() - (reservedBalance as num).toDouble() + (creditLimit as num).toDouble();
+      creditsVal = (availableCredit / 10).toInt();
+    }
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 12.0),
@@ -33,88 +111,95 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           // Credits pill
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF5F6FA),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Row(
-              children: [
-                // Hexagon/diamond shape simulated
-                Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    const Icon(
-                      Icons.hexagon,
-                      color: Color(0xFF2D3047),
-                      size: 20,
-                    ),
-                    Container(
-                      width: 6,
-                      height: 6,
-                      decoration: const BoxDecoration(
-                        color: Colors.white,
-                        shape: BoxShape.circle,
+          GestureDetector(
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const AddCreditsScreen()),
+              );
+            },
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF5F6FA),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Row(
+                children: [
+                  // Hexagon/diamond shape simulated
+                  Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      const Icon(
+                        Icons.hexagon,
+                        color: Color(0xFF2D3047),
+                        size: 20,
                       ),
-                    ),
-                  ],
-                ),
-                const SizedBox(width: 8),
-                const Text(
-                  '200',
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF2D3047),
+                      Container(
+                        width: 6,
+                        height: 6,
+                        decoration: const BoxDecoration(
+                          color: Colors.white,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-              ],
+                  const SizedBox(width: 8),
+                  Text(
+                    '$creditsVal',
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF2D3047),
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-          
-          // Online Switch
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                dispatchState.isOnline ? 'ONLINE' : 'OFFLINE',
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.bold,
-                  color: dispatchState.isOnline ? Colors.green : Colors.red,
-                  letterSpacing: 0.5,
-                ),
-              ),
-              const SizedBox(width: 4),
-              Transform.scale(
-                scale: 0.8,
-                child: Switch(
-                  value: dispatchState.isOnline,
-                  onChanged: (val) {
-                    ref.read(jobDispatchProvider.notifier).toggleAvailability();
-                  },
-                  activeColor: Colors.green,
-                ),
-              ),
-            ],
           ),
 
           // Actions
           Row(
             children: [
               // Notification Bell
-              Container(
-                width: 40,
-                height: 40,
-                decoration: const BoxDecoration(
-                  color: Color(0xFFEFF1FE),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.notifications_none_outlined,
-                  color: Color(0xFF16155D),
-                  size: 22,
+              GestureDetector(
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const PartnerNotificationsScreen()),
+                  );
+                },
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Container(
+                      width: 40,
+                      height: 40,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFFEFF1FE),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.notifications_none_outlined,
+                        color: Color(0xFF16155D),
+                        size: 22,
+                      ),
+                    ),
+                    if (ref.watch(notificationProvider).unreadCount > 0)
+                      Positioned(
+                        top: 2,
+                        right: 2,
+                        child: Container(
+                          width: 10,
+                          height: 10,
+                          decoration: const BoxDecoration(
+                            color: Colors.red,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
               ),
               const SizedBox(width: 12),
@@ -228,7 +313,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          '${job.scheduledAt} • ${job.bookingTime}',
+                          '${_formatDateString(job.scheduledAt)} • ${job.bookingTime}',
                           style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF1C1F3E)),
                         ),
                       ],
@@ -268,12 +353,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                             Navigator.pop(context);
                             final success = await ref.read(jobDispatchProvider.notifier).acceptJob(job.requestId);
                             if (success && mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('Job accepted! Navigate to Jobs tab for instructions.'),
-                                  backgroundColor: Colors.green,
-                                ),
-                              );
+                              showTopPillToast(context, 'Job accepted! Navigate to Jobs tab for instructions.');
                             }
                           },
                           style: ElevatedButton.styleFrom(
@@ -299,31 +379,136 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
+  String _getGreeting() {
+    final hour = DateTime.now().hour;
+    if (hour < 12) return 'Good Morning';
+    if (hour < 17) return 'Good Afternoon';
+    return 'Good Evening';
+  }
+
   Widget _buildGreetingHeader() {
-    return const Padding(
-      padding: EdgeInsets.symmetric(horizontal: 24.0),
-      child: Align(
-        alignment: Alignment.centerLeft,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Good Morning, Muthupandi',
-              style: TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF1C1F3E),
-              ),
+    final authState = ref.watch(authProvider);
+    final dispatchState = ref.watch(jobDispatchProvider);
+    final name = authState.user?.name ?? 'Partner';
+    final greeting = _getGreeting();
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '$greeting, $name',
+                  style: const TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF1C1F3E),
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'Ready for today\'s bookings?',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.black45,
+                  ),
+                ),
+              ],
             ),
-            SizedBox(height: 4),
-            Text(
-              'Ready for today\'s bookings?',
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.black45,
-              ),
+          ),
+          const SizedBox(width: 12),
+          SquareOnlineSlider(
+            isOnline: dispatchState.isOnline,
+            onTap: () async {
+              final success = await ref.read(jobDispatchProvider.notifier).toggleAvailability();
+              if (mounted) {
+                final dispatchState = ref.read(jobDispatchProvider);
+                if (success) {
+                  final isOnline = dispatchState.isOnline;
+                  showTopPillToast(
+                    context,
+                    isOnline ? 'You are online!' : 'You are offline',
+                    isError: false,
+                    isOffline: !isOnline,
+                  );
+                } else {
+                  final err = dispatchState.error;
+                  showTopPillToast(
+                    context,
+                    err ?? 'Failed to update availability status.',
+                    isError: true,
+                  );
+                }
+              }
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildKitBanner() {
+    final profileState = ref.watch(providerProfileProvider);
+    final kitPurchased = profileState.profileData?['kitPurchased'] == true || profileState.profileData?['providerKitCompleted'] == true;
+    final providerName = profileState.profileData?['user_id']?['name'] ?? 'Provider';
+
+    if (kitPurchased) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24.0),
+      child: GestureDetector(
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => StarterKitScreen(providerName: providerName),
             ),
-          ],
+          );
+        },
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(16.0),
+          decoration: BoxDecoration(
+            color: const Color(0xFF3B41C5),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.inventory_2_outlined, color: Colors.white),
+              ),
+              const SizedBox(width: 16),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Complete Your Onboarding',
+                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                      'Purchase your mandatory Provider Kit',
+                      style: TextStyle(color: Colors.white70, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.arrow_forward_ios, color: Colors.white, size: 16),
+            ],
+          ),
         ),
       ),
     );
@@ -383,15 +568,25 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   Widget _buildStatsRow() {
+    final profileState = ref.watch(providerProfileProvider);
+    final profile = profileState.profileData;
+    
+    final analyticsState = ref.watch(providerAnalyticsProvider);
+    final analytics = analyticsState.analyticsData;
+    
+    final totalJobs = analytics?['todayOrders']?.toString() ?? profile?['total_jobs']?.toString() ?? '0';
+    final earnings = analytics?['totalRevenue'] != null ? '₹${analytics!['totalRevenue']}' : (profile?['earnings'] != null ? '₹${profile!['earnings']}' : '₹0');
+    final rating = (profile?['overall_rating'] as num?)?.toStringAsFixed(1) ?? '0.0';
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24.0),
       child: Row(
         children: [
-          _buildStatCard('Today\'s Jobs', '12'),
+          _buildStatCard('Today\'s Jobs', totalJobs),
           const SizedBox(width: 12),
-          _buildStatCard('Earnings', '₹0'),
+          _buildStatCard('Earnings', earnings),
           const SizedBox(width: 12),
-          _buildStatCard('Rating', '4.8', showStar: true),
+          _buildStatCard('Rating', rating, showStar: true),
         ],
       ),
     );
@@ -502,6 +697,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   Widget _buildUpcomingSchedule() {
+    final jobsState = ref.watch(jobsProvider);
+    final upcomingAndOngoing = jobsState.bookings.where((b) => 
+      ['accepted', 'started', 'waiting_start_otp', 'waiting_end_otp', 'in_progress'].contains(b['status'])
+    ).toList();
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24.0),
       child: Column(
@@ -518,7 +718,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 ),
               ),
               TextButton(
-                onPressed: () {},
+                onPressed: () {
+                  setState(() {
+                    _currentIndex = 1; // Navigates to Jobs tab
+                  });
+                },
                 child: const Text(
                   'View All',
                   style: TextStyle(
@@ -530,23 +734,49 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ],
           ),
           const SizedBox(height: 12),
-          _buildTimelineCard(
-            status: 'ONGOING',
-            time: 'Now - 11:00 AM',
-            title: 'Bathroom Cleaning',
-            location: 'Sector 45, Gurgaon, HR',
-            isOngoing: true,
-            isLast: false,
-          ),
-          const SizedBox(height: 12),
-          _buildTimelineCard(
-            status: 'UPCOMING',
-            time: '02:00 PM - 03:30 PM',
-            title: 'Kitchen Sanitization',
-            location: 'Paschim Vihar, Delhi',
-            isOngoing: false,
-            isLast: true,
-          ),
+          if (upcomingAndOngoing.isEmpty)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF8F9FD),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: const Center(
+                child: Text(
+                  'No upcoming schedule bookings.',
+                  style: TextStyle(color: Colors.black38, fontSize: 14),
+                ),
+              ),
+            )
+          else
+            ...List.generate(
+              upcomingAndOngoing.length > 2 ? 2 : upcomingAndOngoing.length,
+              (index) {
+                final booking = upcomingAndOngoing[index];
+                final isOngoing = ['started', 'waiting_start_otp', 'waiting_end_otp', 'in_progress']
+                    .contains(booking['status']);
+                final status = isOngoing ? 'ONGOING' : 'UPCOMING';
+                final subservice = booking['subservice_id'] ?? {};
+                final serviceName = subservice['subservice_name'] ?? booking['variant_name'] ?? 'Cleaning Service';
+                final address = booking['address_id'] ?? {};
+                final addressLine = address['address_line'] ?? 'Address';
+                final city = address['city'] ?? 'City';
+                final time = '${booking['scheduled_at'] ?? 'Today'} • ${booking['booking_time'] ?? 'Now'}';
+
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 12.0),
+                  child: _buildTimelineCard(
+                    status: status,
+                    time: time,
+                    title: serviceName,
+                    location: '$addressLine, $city',
+                    isOngoing: isOngoing,
+                    isLast: index == (upcomingAndOngoing.length > 2 ? 1 : upcomingAndOngoing.length - 1),
+                  ),
+                );
+              },
+            ),
         ],
       ),
     );
@@ -586,56 +816,80 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         itemCount: banners.length,
         itemBuilder: (context, index) {
           final banner = banners[index];
-          return Container(
-            width: 300,
-            margin: EdgeInsets.only(right: index == banners.length - 1 ? 0 : 16),
-            padding: const EdgeInsets.all(18),
-            decoration: BoxDecoration(
-              color: banner['color'],
-              gradient: banner['gradient'],
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  banner['title'],
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Colors.white60, // Light white/blueish
-                    fontWeight: FontWeight.w500,
+          return GestureDetector(
+            onTap: () {
+              if (banner['title'] == 'Referral Program') {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const ReferralScreen()),
+                );
+              }
+            },
+            child: Container(
+              width: 300,
+              margin: EdgeInsets.only(right: index == banners.length - 1 ? 0 : 16),
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(
+                color: banner['color'],
+                gradient: banner['gradient'],
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    banner['title'],
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Colors.white60, // Light white/blueish
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
-                ),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      banner['header'],
-                      style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        banner['header'],
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      banner['subtitle'],
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: Colors.white70,
+                      const SizedBox(height: 6),
+                      Text(
+                        banner['subtitle'],
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Colors.white70,
+                        ),
                       ),
-                    ),
-                  ],
-                ),
-              ],
+                    ],
+                  ),
+                ],
+              ),
             ),
           );
         },
       ),
     );
+  }
+
+  String _formatDateString(String rawDate) {
+    if (rawDate.isEmpty) return '';
+    try {
+      final dt = DateTime.tryParse(rawDate);
+      if (dt != null) {
+        return '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
+      }
+    } catch (_) {}
+    if (rawDate.contains('T')) {
+      return rawDate.split('T').first;
+    }
+    return rawDate;
   }
 
   Widget _buildTimeChip(IconData icon, String text) {
@@ -664,9 +918,46 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   Widget _buildNewJobRequests() {
+    final jobsState = ref.watch(jobsProvider);
+
+    if (jobsState.newJobs.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 24.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'New Job Requests',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF1C1F3E),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF8F9FD),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: const Center(
+                child: Text(
+                  'No new job requests at the moment.',
+                  style: TextStyle(color: Colors.black38, fontSize: 14),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24.0),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -688,9 +979,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       color: const Color(0xFFEFF1FE),
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: const Text(
-                      '1 New',
-                      style: TextStyle(
+                    child: Text(
+                      '${jobsState.newJobs.length} New',
+                      style: const TextStyle(
                         fontSize: 10,
                         fontWeight: FontWeight.bold,
                         color: Color(0xFF16155D),
@@ -702,198 +993,216 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ],
           ),
           const SizedBox(height: 12),
-          // Job Request Card with thick left accent border
-          Container(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withAlpha(5),
-                  blurRadius: 10,
-                  offset: const Offset(0, 4),
-                )
-              ],
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(16),
-              child: Row(
-                children: [
-                  // Blue left bar
-                  Container(
-                    width: 4,
-                    height: 154,
-                    color: const Color(0xFF16155D),
-                  ),
-                  Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16.0),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Bathroom Cleaning',
-                                    style: TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.bold,
-                                      color: Color(0xFF1C1F3E),
-                                    ),
-                                  ),
-                                  SizedBox(height: 4),
-                                  Text(
-                                    'Hennur, Bengaluru • 27 Jun',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.black38,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.end,
-                                children: [
-                                  const Text(
-                                    '₹450',
-                                    style: TextStyle(
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.bold,
-                                      color: Color(0xFF16155D),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  const Text(
-                                    'Earnings',
-                                    style: TextStyle(
-                                      fontSize: 10,
-                                      color: Colors.black38,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                          // Row of chips
-                          Row(
-                            children: [
-                              _buildTimeChip(Icons.calendar_today_outlined, '27-06-26'),
-                              const SizedBox(width: 8),
-                              _buildTimeChip(Icons.access_time_outlined, '11:30 AM'),
-                              const SizedBox(width: 8),
-                              _buildTimeChip(Icons.history_toggle_off_outlined, '60 Mins'),
-                            ],
-                          ),
-                          const SizedBox(height: 16),
-                          // Buttons
-                          Row(
-                            children: [
-                              Expanded(
-                                child: SizedBox(
-                                  height: 40,
-                                  child: ElevatedButton(
-                                    onPressed: () {},
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: const Color(0xFF16155D),
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(10),
-                                      ),
-                                      elevation: 0,
-                                    ),
-                                    child: const Text(
-                                      'Accept Job',
-                                      style: TextStyle(
-                                        fontSize: 13,
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: SizedBox(
-                                  height: 40,
-                                  child: ElevatedButton(
-                                    onPressed: () {},
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: const Color(0xFFF5F6FA),
-                                      foregroundColor: const Color(0xFF16155D),
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(10),
-                                      ),
-                                      elevation: 0,
-                                    ),
-                                    child: const Text(
-                                      'View Details',
-                                      style: TextStyle(
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
+          ...jobsState.newJobs.map((job) {
+            return Container(
+              margin: const EdgeInsets.only(bottom: 16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withAlpha(5),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  )
                 ],
               ),
-            ),
-          ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: Row(
+                  children: [
+                    // Blue left bar
+                    Container(
+                      width: 4,
+                      height: 154,
+                      color: const Color(0xFF16155D),
+                    ),
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        job.serviceName,
+                                        style: const TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.bold,
+                                          color: Color(0xFF1C1F3E),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        '${job.address}, ${job.city}',
+                                        style: const TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.black38,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  children: [
+                                    Text(
+                                      '₹${job.amount.toStringAsFixed(0)}',
+                                      style: const TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.bold,
+                                        color: Color(0xFF16155D),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    const Text(
+                                      'Earnings',
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        color: Colors.black38,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            // Row of chips
+                            // Chips layout
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                _buildTimeChip(Icons.calendar_today_outlined, _formatDateString(job.scheduledAt)),
+                                _buildTimeChip(Icons.access_time_outlined, job.bookingTime),
+                                _buildTimeChip(Icons.history_toggle_off_outlined, '60 Mins'),
+                              ],
+                            ),
+                            const SizedBox(height: 16),
+                            // Buttons
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: SizedBox(
+                                    height: 40,
+                                    child: ElevatedButton(
+                                      onPressed: () async {
+                                        final success = await ref.read(jobsProvider.notifier).acceptJob(job.requestId);
+                                        if (success && mounted) {
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            const SnackBar(
+                                              content: Text('Job request accepted successfully!'),
+                                              backgroundColor: Colors.green,
+                                            ),
+                                          );
+                                        }
+                                      },
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: const Color(0xFF16155D),
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(10),
+                                        ),
+                                        elevation: 0,
+                                      ),
+                                      child: const Text(
+                                        'Accept Job',
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: SizedBox(
+                                    height: 40,
+                                    child: ElevatedButton(
+                                      onPressed: () => _navigateToDetails(job, isNewJob: true),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: const Color(0xFFF5F6FA),
+                                        foregroundColor: const Color(0xFF16155D),
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(10),
+                                        ),
+                                        elevation: 0,
+                                      ),
+                                      child: const Text(
+                                        'View Details',
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }).toList(),
         ],
       ),
     );
   }
 
-  Widget _buildQuickActionCard(IconData icon, String text) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withAlpha(5),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          )
-        ],
-      ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: const BoxDecoration(
-              color: Color(0xFFEFF1FE),
-              shape: BoxShape.circle,
+  Widget _buildQuickActionCard(IconData icon, String text, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withAlpha(5),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            )
+          ],
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: const BoxDecoration(
+                color: Color(0xFFEFF1FE),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                icon,
+                color: const Color(0xFF16155D),
+                size: 24,
+              ),
             ),
-            child: Icon(
-              icon,
-              color: const Color(0xFF16155D),
-              size: 24,
+            const SizedBox(height: 10),
+            Text(
+              text,
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF1C1F3E),
+              ),
             ),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            text,
-            style: const TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF1C1F3E),
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -921,10 +1230,40 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             mainAxisSpacing: 16,
             childAspectRatio: 1.4,
             children: [
-              _buildQuickActionCard(Icons.calendar_today_outlined, 'Availability'),
-              _buildQuickActionCard(Icons.account_balance_wallet_outlined, 'Add Credits'),
-              _buildQuickActionCard(Icons.description_outlined, 'Documents'),
-              _buildQuickActionCard(Icons.school_outlined, 'Training'),
+              _buildQuickActionCard(Icons.calendar_today_outlined, 'Availability', () async {
+                final success = await ref.read(jobDispatchProvider.notifier).toggleAvailability();
+                if (context.mounted) {
+                  final dispatchState = ref.read(jobDispatchProvider);
+                  if (success) {
+                    final isOnline = dispatchState.isOnline;
+                    showTopPillToast(
+                      context,
+                      isOnline ? 'You are online!' : 'You are offline',
+                      isError: false,
+                      isOffline: !isOnline,
+                    );
+                  } else {
+                    final err = dispatchState.error;
+                    showTopPillToast(
+                      context,
+                      err ?? 'Failed to update availability status.',
+                      isError: true,
+                    );
+                  }
+                }
+              }),
+              _buildQuickActionCard(Icons.account_balance_wallet_outlined, 'Add Credits', () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const AddCreditsScreen()),
+                );
+              }),
+              _buildQuickActionCard(Icons.description_outlined, 'Documents', () {
+                showTopPillToast(context, 'Documents feature coming soon!');
+              }),
+              _buildQuickActionCard(Icons.school_outlined, 'Training', () {
+                showTopPillToast(context, 'Training modules coming soon!');
+              }),
             ],
           ),
         ],
@@ -943,86 +1282,439 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       },
     );
 
-    return Scaffold(
-      backgroundColor: Colors.white,
-      body: SafeArea(
-        child: Column(
-          children: [
-            Expanded(
-              child: _currentIndex == 1
-                  ? const JobsScreen()
-                  : _currentIndex == 2
-                      ? const MoneyScreen()
-                      : _currentIndex == 3
-                          ? const ProfileScreen()
-                          : SingleChildScrollView(
-                      child: Column(
-                        children: [
-                          _buildTopBar(),
-                          const SizedBox(height: 12),
-                          _buildGreetingHeader(),
-                          const SizedBox(height: 20),
-                          _buildStatsRow(),
-                          const SizedBox(height: 24),
-                          _buildUpcomingSchedule(),
-                          const SizedBox(height: 24),
-                          _buildBannerCarousel(),
-                          const SizedBox(height: 24),
-                          _buildNewJobRequests(),
-                          const SizedBox(height: 24),
-                          _buildQuickActions(),
-                          const SizedBox(height: 24),
-                        ],
-                      ),
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        final shouldExit = await showDialog<bool>(
+          context: context,
+          builder: (context) => Dialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            child: Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: const BoxDecoration(
+                      color: Color(0xFFEEF0FF),
+                      shape: BoxShape.circle,
                     ),
-            ),
-            // Custom Navigation Bar
-            Container(
-              decoration: BoxDecoration(
-                color: Colors.white,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withAlpha(10),
-                    blurRadius: 10,
-                    offset: const Offset(0, -2),
-                  )
+                    child: const Icon(
+                      Icons.exit_to_app_rounded,
+                      color: Color(0xFF16155D),
+                      size: 32,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Leave BharathClap?',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF16155D),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Are you sure you want to exit the app?',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey.shade600,
+                      height: 1.4,
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.of(context).pop(false),
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 13),
+                            side: const BorderSide(color: Color(0xFF16155D)),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                          child: const Text(
+                            'Stay',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF16155D),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () => Navigator.of(context).pop(true),
+                          style: ElevatedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 13),
+                            backgroundColor: const Color(0xFF16155D),
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                          child: const Text(
+                            'Exit',
+                            style: TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ],
               ),
-              child: BottomNavigationBar(
-                currentIndex: _currentIndex,
-                onTap: (index) {
-                  setState(() {
-                    _currentIndex = index;
-                  });
-                },
-                backgroundColor: Colors.white,
-                elevation: 0,
-                type: BottomNavigationBarType.fixed,
-                selectedItemColor: const Color(0xFF16155D),
-                unselectedItemColor: Colors.black38,
-                selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-                unselectedLabelStyle: const TextStyle(fontSize: 12),
-                items: const [
-                  BottomNavigationBarItem(
-                    icon: Icon(Icons.home),
-                    label: 'Home',
+            ),
+          ),
+        );
+        if (shouldExit == true && context.mounted) {
+          // ignore: use_build_context_synchronously
+          Navigator.of(context).pop(true);
+        }
+      },
+      child: Scaffold(
+        backgroundColor: Colors.white,
+        body: SafeArea(
+          child: Column(
+            children: [
+              Expanded(
+                child: _currentIndex == 1
+                    ? const JobsScreen()
+                    : _currentIndex == 2
+                        ? const MoneyScreen()
+                        : _currentIndex == 3
+                            ? const ProfileScreen()
+                            : RefreshIndicator(
+                                color: const Color(0xFF16155D),
+                                onRefresh: () async {
+                                  await ref.read(providerProfileProvider.notifier).fetchProfile();
+                                  await ref.read(jobsProvider.notifier).fetchAllJobs();
+                                },
+                                child: SingleChildScrollView(
+                                  physics: const AlwaysScrollableScrollPhysics(),
+                                  child: Column(
+                                    children: [
+                                      _buildTopBar(),
+                                      const SizedBox(height: 12),
+                                      _buildGreetingHeader(),
+                                      const SizedBox(height: 20),
+                                      _buildKitBanner(),
+                                      if (ref.watch(providerProfileProvider).profileData?['kitPurchased'] != true && ref.watch(providerProfileProvider).profileData?['providerKitCompleted'] != true)
+                                        const SizedBox(height: 20),
+                                      _buildStatsRow(),
+                                      const SizedBox(height: 24),
+                                      _buildUpcomingSchedule(),
+                                      const SizedBox(height: 24),
+                                      _buildBannerCarousel(),
+                                      const SizedBox(height: 24),
+                                      _buildNewJobRequests(),
+                                      const SizedBox(height: 24),
+                                      _buildQuickActions(),
+                                      const SizedBox(height: 24),
+                                    ],
+                                  ),
+                                ),
+                              ),
+              ),
+              // Custom Navigation Bar
+              Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withAlpha(10),
+                      blurRadius: 10,
+                      offset: const Offset(0, -2),
+                    )
+                  ],
+                ),
+                child: BottomNavigationBar(
+                  currentIndex: _currentIndex,
+                  onTap: (index) {
+                    setState(() {
+                      _currentIndex = index;
+                    });
+                  },
+                  backgroundColor: Colors.white,
+                  elevation: 0,
+                  type: BottomNavigationBarType.fixed,
+                  selectedItemColor: const Color(0xFF16155D),
+                  unselectedItemColor: Colors.black38,
+                  selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                  unselectedLabelStyle: const TextStyle(fontSize: 12),
+                  items: const [
+                    BottomNavigationBarItem(
+                      icon: Icon(Icons.home),
+                      label: 'Home',
+                    ),
+                    BottomNavigationBarItem(
+                      icon: Icon(Icons.assignment_outlined),
+                      label: 'Jobs',
+                    ),
+                    BottomNavigationBarItem(
+                      icon: Icon(Icons.account_balance_wallet_outlined),
+                      label: 'Money',
+                    ),
+                    BottomNavigationBarItem(
+                      icon: Icon(Icons.person_outline),
+                      label: 'Profile',
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class SquareOnlineSlider extends StatelessWidget {
+  final bool isOnline;
+  final bool isLoading;
+  final VoidCallback onTap;
+
+  const SquareOnlineSlider({
+    super.key,
+    required this.isOnline,
+    this.isLoading = false,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: isLoading ? null : onTap,
+      behavior: HitTestBehavior.opaque,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeInOut,
+        padding: const EdgeInsets.all(4),
+        width: 92,
+        height: 38,
+        decoration: BoxDecoration(
+          color: isOnline ? const Color(0xFF10B981) : const Color(0xFFE2E8F0),
+          borderRadius: BorderRadius.circular(10),
+          boxShadow: isOnline
+              ? [
+                  BoxShadow(
+                    color: const Color(0xFF10B981).withOpacity(0.35),
+                    blurRadius: 8,
+                    offset: const Offset(0, 3),
                   ),
-                  BottomNavigationBarItem(
-                    icon: Icon(Icons.assignment_outlined),
-                    label: 'Jobs',
+                ]
+              : [],
+        ),
+        child: Stack(
+          children: [
+            // Dynamic Label: "ON" on left when online, "OFF" on right when offline
+            AnimatedAlign(
+              duration: const Duration(milliseconds: 250),
+              curve: Curves.easeInOutCubic,
+              alignment: isOnline ? Alignment.centerLeft : Alignment.centerRight,
+              child: Padding(
+                padding: EdgeInsets.only(
+                  left: isOnline ? 14.0 : 0.0,
+                  right: isOnline ? 0.0 : 14.0,
+                ),
+                child: Text(
+                  isOnline ? 'ON' : 'OFF',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                    color: isOnline ? Colors.white : const Color(0xFFEF4444),
+                    letterSpacing: 0.8,
                   ),
-                  BottomNavigationBarItem(
-                    icon: Icon(Icons.account_balance_wallet_outlined),
-                    label: 'Money',
-                  ),
-                  BottomNavigationBarItem(
-                    icon: Icon(Icons.person_outline),
-                    label: 'Profile',
-                  ),
-                ],
+                ),
+              ),
+            ),
+            // Sliding Square Knob
+            AnimatedAlign(
+              duration: const Duration(milliseconds: 250),
+              curve: Curves.easeInOutCubic,
+              alignment: isOnline ? Alignment.centerRight : Alignment.centerLeft,
+              child: Container(
+                width: 30,
+                height: 30,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(7),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.12),
+                      blurRadius: 4,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Center(
+                  child: isLoading
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Color(0xFF10B981),
+                          ),
+                        )
+                      : Container(
+                          width: 8,
+                          height: 8,
+                          decoration: BoxDecoration(
+                            color: isOnline ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
+                ),
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+void showTopPillToast(BuildContext context, String message, {bool isError = false, bool isOffline = false}) {
+  final overlay = Overlay.of(context);
+  late OverlayEntry entry;
+
+  entry = OverlayEntry(
+    builder: (context) => _TopPillToastWidget(
+      message: message,
+      isError: isError,
+      isOffline: isOffline,
+      onDismiss: () {
+        entry.remove();
+      },
+    ),
+  );
+
+  overlay.insert(entry);
+}
+
+class _TopPillToastWidget extends StatefulWidget {
+  final String message;
+  final bool isError;
+  final bool isOffline;
+  final VoidCallback onDismiss;
+
+  const _TopPillToastWidget({
+    required this.message,
+    required this.isError,
+    this.isOffline = false,
+    required this.onDismiss,
+  });
+
+  @override
+  State<_TopPillToastWidget> createState() => _TopPillToastWidgetState();
+}
+
+class _TopPillToastWidgetState extends State<_TopPillToastWidget> with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<Offset> _offsetAnimation;
+  late Animation<double> _fadeAnimation;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 350),
+    );
+
+    _offsetAnimation = Tween<Offset>(
+      begin: const Offset(0.0, -1.2),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(
+      parent: _controller,
+      curve: Curves.easeOutBack,
+    ));
+
+    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeIn),
+    );
+
+    _controller.forward();
+
+    _timer = Timer(const Duration(milliseconds: 2300), () {
+      if (mounted) {
+        _controller.reverse().then((_) {
+          widget.onDismiss();
+        });
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final topPadding = MediaQuery.of(context).padding.top;
+    final Color toastBgColor = widget.isError
+        ? const Color(0xFFEF4444)
+        : (widget.isOffline ? const Color(0xFF475569) : const Color(0xFF10B981));
+
+    return Positioned(
+      top: topPadding + 12,
+      left: 20,
+      right: 20,
+      child: Material(
+        color: Colors.transparent,
+        child: SlideTransition(
+          position: _offsetAnimation,
+          child: FadeTransition(
+            opacity: _fadeAnimation,
+            child: Center(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                decoration: BoxDecoration(
+                  color: toastBgColor,
+                  borderRadius: BorderRadius.circular(30),
+                  boxShadow: [
+                    BoxShadow(
+                      color: toastBgColor.withOpacity(0.35),
+                      blurRadius: 16,
+                      offset: const Offset(0, 6),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      widget.isError 
+                          ? Icons.error_outline_rounded 
+                          : (widget.isOffline ? Icons.power_settings_new_rounded : Icons.check_circle_rounded),
+                      color: Colors.white,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 10),
+                    Flexible(
+                      child: Text(
+                        widget.message,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
         ),
       ),
     );

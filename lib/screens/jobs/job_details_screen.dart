@@ -1,26 +1,36 @@
+import 'dart:convert';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:partner_app/providers/job_dispatch_provider.dart';
 import 'package:partner_app/providers/jobs_provider.dart';
 
 class JobDetailsScreen extends ConsumerStatefulWidget {
   final dynamic booking;
+  final String? bookingId;
   final bool isNewJob;
-  const JobDetailsScreen({super.key, required this.booking, this.isNewJob = false});
+  const JobDetailsScreen({super.key, this.booking, this.bookingId, this.isNewJob = false});
 
   @override
   ConsumerState<JobDetailsScreen> createState() => _JobDetailsScreenState();
 }
 
 class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
+  dynamic _loadedBooking;
   // Steps: 0 -> Arrived at Location, 1 -> Enter Start OTP, 2 -> Service in Progress, 3 -> Enter End OTP
   int _stepIndex = 0;
 
   @override
   void initState() {
     super.initState();
-    if (!widget.isNewJob && widget.booking != null) {
-      final status = widget.booking['status'];
+    if (widget.booking == null && widget.bookingId != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _loadBookingById();
+      });
+    } else if (!widget.isNewJob && widget.booking != null) {
+      final status = _getVal('status');
       if (status == 'accepted') {
         _stepIndex = 0;
       } else if (status == 'waiting_start_otp') {
@@ -33,6 +43,73 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
     }
   }
 
+  void _loadBookingById() {
+    final jobs = ref.read(jobsProvider).bookings;
+    final match = jobs.firstWhere(
+      (j) => (j is Map && (j['_id']?.toString() == widget.bookingId || j['booking_id']?.toString() == widget.bookingId)),
+      orElse: () => null,
+    );
+    if (match != null && mounted) {
+      setState(() {
+        _loadedBooking = match;
+        final status = _getVal('status');
+        if (status == 'accepted') {
+          _stepIndex = 0;
+        } else if (status == 'waiting_start_otp') {
+          _stepIndex = 1;
+        } else if (status == 'in_progress') {
+          _stepIndex = 2;
+        } else if (status == 'waiting_end_otp') {
+          _stepIndex = 3;
+        }
+      });
+    }
+  }
+
+  dynamic _getVal(String key) {
+    final b = widget.booking ?? _loadedBooking;
+    if (b == null) {
+      if (key == '_id' || key == 'booking_id' || key == 'requestId' || key == 'request_id') return widget.bookingId;
+      return null;
+    }
+    if (b is JobRequestModel) {
+      if (key == 'requestId' || key == 'request_id') return b.requestId;
+      if (key == '_id') return b.bookingId;
+      if (key == 'booking_id') return b.displayId.isNotEmpty ? b.displayId : b.bookingId;
+      if (key == 'service_name') return b.serviceName;
+      if (key == 'amount' || key == 'payable_amount') return b.amount;
+      if (key == 'scheduled_at') return b.scheduledAt;
+      if (key == 'booking_time') return b.bookingTime;
+      if (key == 'address_id') {
+        return {
+          'address_line': b.address,
+          'city': b.city,
+          'pincode': b.pincode,
+        };
+      }
+      if (key == 'user_id') {
+        return {
+          'name': 'Customer',
+        };
+      }
+      if (key == 'status') return 'pending';
+      return null;
+    }
+    if (b is Map) {
+      if (key == 'requestId' || key == 'request_id') {
+        return b['requestId'] ?? b['request_id'] ?? b['_id'];
+      }
+      if (key == '_id') {
+        return b['_id'] ?? b['booking_id'] ?? b['id'];
+      }
+      if (key == 'booking_id') {
+        return b['booking_id'] ?? b['display_id'] ?? b['_id'];
+      }
+      return b[key];
+    }
+    return null;
+  }
+
   // Start OTP inputs state (6 digits)
   final List<TextEditingController> _startOtpControllers = List.generate(6, (_) => TextEditingController());
   final List<FocusNode> _startOtpFocusNodes = List.generate(6, (_) => FocusNode());
@@ -41,8 +118,147 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
   final List<TextEditingController> _endOtpControllers = List.generate(6, (_) => TextEditingController());
   final List<FocusNode> _endOtpFocusNodes = List.generate(6, (_) => FocusNode());
 
-  // Photos status
+  // Photos state (Base64 strings)
+  final List<String> _beforePhotos = [];
+  final List<String> _afterPhotos = [];
   bool _afterPhotosUploaded = false;
+
+  String _getCustomerName() {
+    final user = _getVal('user_id') ?? _getVal('customer');
+    if (user != null && user is Map) {
+      final n = user['name'] ?? user['fullName'] ?? user['phone'];
+      if (n != null && n.toString().isNotEmpty) return n.toString();
+    }
+    final address = _getVal('address_id');
+    if (address != null && address is Map) {
+      final name = address['name'];
+      if (name != null && name.toString().isNotEmpty) return name.toString();
+    }
+    return 'Customer';
+  }
+
+  String _getCustomerPhone() {
+    final user = _getVal('user_id') ?? _getVal('customer');
+    if (user != null && user is Map) {
+      final p = user['phone'] ?? user['mobile'];
+      if (p != null && p.toString().isNotEmpty) return p.toString();
+    }
+    final address = _getVal('address_id');
+    if (address != null && address is Map) {
+      final phone = address['phone'];
+      if (phone != null && phone.toString().isNotEmpty) return phone.toString();
+    }
+    return '';
+  }
+
+  Future<void> _openGoogleMaps(String fullAddress) async {
+    final cleanAddress = fullAddress.trim();
+    if (cleanAddress.isEmpty) return;
+
+    final addressObj = _getVal('address_id');
+    String query = cleanAddress;
+    if (addressObj is Map && addressObj['latitude'] != null && addressObj['longitude'] != null) {
+      final lat = addressObj['latitude'];
+      final lng = addressObj['longitude'];
+      query = '$lat,$lng';
+    }
+
+    final encodedQuery = Uri.encodeComponent(query);
+    final httpsUrl = Uri.parse('https://www.google.com/maps/search/?api=1&query=$encodedQuery');
+    final geoUrl = Uri.parse('geo:0,0?q=$encodedQuery');
+
+    try {
+      final launched = await launchUrl(httpsUrl, mode: LaunchMode.externalApplication);
+      if (!launched) {
+        await launchUrl(geoUrl, mode: LaunchMode.externalApplication);
+      }
+    } catch (_) {
+      try {
+        await launchUrl(httpsUrl, mode: LaunchMode.platformDefault);
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Please perform a full app restart/rebuild to register map plugin.'),
+              backgroundColor: Color(0xFF16155D),
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  Future<void> _makePhoneCall() async {
+    final phone = _getCustomerPhone();
+    if (phone.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Customer phone number unavailable'),
+          backgroundColor: Color(0xFF16155D),
+        ),
+      );
+      return;
+    }
+    final telUrl = Uri.parse('tel:$phone');
+    try {
+      if (await canLaunchUrl(telUrl)) {
+        await launchUrl(telUrl);
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Calling customer: $phone'),
+              backgroundColor: const Color(0xFF16155D),
+            ),
+          );
+        }
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Calling customer: $phone'),
+            backgroundColor: const Color(0xFF16155D),
+          ),
+        );
+      }
+    }
+  }
+
+  void _openChat() {
+    final name = _getCustomerName();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Opening chat with $name'),
+        backgroundColor: const Color(0xFF0F9D58),
+      ),
+    );
+  }
+
+  Future<void> _pickPhoto({required bool isBefore}) async {
+    final picker = ImagePicker();
+    try {
+      final image = await picker.pickImage(source: ImageSource.camera, imageQuality: 60);
+      if (image != null) {
+        final bytes = await image.readAsBytes();
+        final base64Image = 'data:image/jpeg;base64,${base64Encode(bytes)}';
+        setState(() {
+          if (isBefore) {
+            _beforePhotos.add(base64Image);
+          } else {
+            _afterPhotos.add(base64Image);
+            _afterPhotosUploaded = _afterPhotos.isNotEmpty;
+          }
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error launching camera: $e')),
+        );
+      }
+    }
+  }
 
   @override
   void dispose() {
@@ -80,7 +296,7 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
 
   Future<void> _verifyStartServiceOtp() async {
     final otpCode = _startOtpControllers.map((c) => c.text).join();
-    final bookingId = widget.booking['_id'];
+    final bookingId = _getVal('_id');
     final success = await ref.read(jobsProvider.notifier).verifyStartOtp(bookingId, otpCode);
     if (success && mounted) {
       setState(() {
@@ -115,7 +331,7 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
 
   Future<void> _verifyEndServiceOtp() async {
     final otpCode = _endOtpControllers.map((c) => c.text).join();
-    final bookingId = widget.booking['_id'];
+    final bookingId = _getVal('_id');
     final success = await ref.read(jobsProvider.notifier).verifyEndOtp(bookingId, otpCode);
     if (success && mounted) {
       _showCompletionDialog();
@@ -155,12 +371,172 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
               'OK',
               style: TextStyle(
                 color: Color(0xFF16155D),
-                fontWeight: FontWeight.bold,
               ),
             ),
           ),
         ],
       ),
+    );
+  }
+
+  bool _isCOD() {
+    final method = (_getVal('payment_method') ?? _getVal('payment_type') ?? _getVal('paymentMethod') ?? '').toString().toLowerCase();
+    final pStatus = (_getVal('payment_status') ?? _getVal('paymentStatus') ?? '').toString().toLowerCase();
+
+    if (method == 'cod' || method == 'cash' || method == 'cash_on_delivery' || method.contains('cod')) {
+      return true;
+    }
+    if (method == 'online' || method == 'razorpay' || method == 'upi' || method == 'card' || pStatus == 'paid' || pStatus == 'completed') {
+      return false;
+    }
+    return pStatus != 'paid' && pStatus != 'completed';
+  }
+
+  Widget _buildPaymentStatusSection() {
+    final isCOD = _isCOD();
+    final amount = _getVal('payable_amount') ?? _getVal('amount') ?? 450;
+
+    return Container(
+      margin: const EdgeInsets.only(top: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: isCOD ? const Color(0xFFFFF3E0) : const Color(0xFFE8F5E9),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isCOD ? const Color(0xFFFFB74D) : const Color(0xFF81C784),
+          width: 1.5,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    isCOD ? Icons.warning_amber_rounded : Icons.verified_user_rounded,
+                    color: isCOD ? const Color(0xFFE65100) : const Color(0xFF2E7D32),
+                    size: 22,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    isCOD ? 'COD - CASH TO COLLECT' : 'ONLINE PAID',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                      color: isCOD ? const Color(0xFFE65100) : const Color(0xFF2E7D32),
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ],
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: isCOD ? const Color(0xFFEF6C00) : const Color(0xFF2E7D32),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  isCOD ? 'COLLECT ₹$amount CASH' : 'NO CASH NEEDED',
+                  style: const TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            isCOD
+                ? '⚠️ REMINDER: Collect ₹$amount in cash from the customer before ending the service.'
+                : '✅ Customer has already paid ₹$amount online. Do NOT collect any cash.',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: isCOD ? const Color(0xFFBF360C) : const Color(0xFF1B5E20),
+              height: 1.4,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showCodCashCollectionDialog(VoidCallback onConfirmed) {
+    if (!_isCOD()) {
+      onConfirmed();
+      return;
+    }
+
+    final amount = _getVal('payable_amount') ?? _getVal('amount') ?? 450;
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: Row(
+            children: const [
+              Icon(Icons.payments_outlined, color: Color(0xFFE65100)),
+              SizedBox(width: 8),
+              Text('Collect Cash (COD)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'This booking is Cash on Delivery (COD).',
+                style: TextStyle(fontSize: 14, color: Colors.black87, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFF3E0),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFFFB74D)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.warning_amber_rounded, color: Color(0xFFE65100), size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Have you collected ₹$amount in cash from the customer?',
+                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFFBF360C)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel', style: TextStyle(color: Colors.grey, fontWeight: FontWeight.w600)),
+            ),
+            ElevatedButton.icon(
+              onPressed: () {
+                Navigator.pop(context);
+                onConfirmed();
+              },
+              icon: const Icon(Icons.check_circle_outline, color: Colors.white, size: 18),
+              label: Text('Yes, Collected ₹$amount', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF2E7D32),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -220,15 +596,30 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
     );
   }
 
+  String _formatDateVal(dynamic rawDate) {
+    if (rawDate == null) return 'Today';
+    final str = rawDate.toString();
+    if (str.isEmpty) return 'Today';
+    try {
+      final dt = DateTime.tryParse(str);
+      if (dt != null) {
+        return '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
+      }
+    } catch (_) {}
+    if (str.contains('T')) {
+      return str.split('T').first;
+    }
+    return str;
+  }
+
   Widget _buildStep0ArrivedView() {
-    final address = widget.booking['address_id'] ?? {};
+    final address = _getVal('address_id') ?? {};
     final addressLine = address['address_line'] ?? 'No 48, 5th Cross, Hennur Rd';
     final city = address['city'] ?? 'Bengaluru';
-    final dateVal = widget.booking['scheduled_at'] ?? 'Today';
-    final timeVal = widget.booking['booking_time'] ?? 'Now';
+    final dateVal = _formatDateVal(_getVal('scheduled_at'));
+    final timeVal = _getVal('booking_time') ?? 'Now';
     
-    final user = widget.booking['user_id'] ?? {};
-    final userName = user['name'] ?? 'Virat Sharma';
+    final userName = _getCustomerName();
 
     return Expanded(
       child: Stack(
@@ -268,7 +659,7 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
                               ),
                               const SizedBox(height: 2),
                               Text(
-                                widget.booking['booking_id'] ?? '#BC-88241',
+                                _getVal('booking_id') ?? '#BC-88241',
                                 style: const TextStyle(
                                   fontSize: 14,
                                   fontWeight: FontWeight.bold,
@@ -348,22 +739,82 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          _buildCircularIcon(Icons.location_on_outlined),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Text(
-                              '$addressLine, $city',
-                              style: const TextStyle(
-                                  fontSize: 13,
-                                  color: Color(0xFF1C1F3E),
-                                  fontWeight: FontWeight.w500,
-                                  height: 1.4),
-                            ),
+                      InkWell(
+                        onTap: () => _openGoogleMaps('$addressLine, $city'),
+                        borderRadius: BorderRadius.circular(12),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 4.0),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              Container(
+                                width: 44,
+                                height: 44,
+                                decoration: BoxDecoration(
+                                  gradient: const LinearGradient(
+                                    colors: [Color(0xFF16155D), Color(0xFF28277D)],
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                  ),
+                                  borderRadius: BorderRadius.circular(12),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: const Color(0xFF16155D).withValues(alpha: 0.2),
+                                      blurRadius: 6,
+                                      offset: const Offset(0, 3),
+                                    ),
+                                  ],
+                                ),
+                                child: const Icon(
+                                  Icons.near_me_rounded,
+                                  color: Colors.white,
+                                  size: 22,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      '$addressLine, $city',
+                                      style: const TextStyle(
+                                        fontSize: 13,
+                                        color: Color(0xFF1C1F3E),
+                                        fontWeight: FontWeight.w600,
+                                        height: 1.4,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 3),
+                                    Row(
+                                      children: const [
+                                        Icon(
+                                          Icons.directions_outlined,
+                                          size: 13,
+                                          color: Color(0xFF4285F4),
+                                        ),
+                                        SizedBox(width: 4),
+                                        Text(
+                                          'Tap to navigate in Google Maps',
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            color: Color(0xFF4285F4),
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const Icon(
+                                Icons.chevron_right_rounded,
+                                color: Color(0xFF4285F4),
+                                size: 20,
+                              ),
+                            ],
                           ),
-                        ],
+                        ),
                       ),
                       const SizedBox(height: 16),
                       Row(
@@ -372,56 +823,65 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
                             child: Row(
                               children: [
                                 _buildCircularIcon(Icons.calendar_today_outlined),
-                                const SizedBox(width: 12),
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Text(
-                                      'Date',
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        color: Colors.black38,
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Text(
+                                        'Date',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: Colors.black38,
+                                        ),
                                       ),
-                                    ),
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      dateVal,
-                                      style: const TextStyle(
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.bold,
-                                        color: Color(0xFF1C1F3E),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        dateVal,
+                                        style: const TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.bold,
+                                          color: Color(0xFF1C1F3E),
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
                                       ),
-                                    ),
-                                  ],
+                                    ],
+                                  ),
                                 ),
                               ],
                             ),
                           ),
+                          const SizedBox(width: 8),
                           Expanded(
                             child: Row(
                               children: [
                                 _buildCircularIcon(Icons.access_time_outlined),
-                                const SizedBox(width: 12),
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Text(
-                                      'Time',
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        color: Colors.black38,
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Text(
+                                        'Time',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: Colors.black38,
+                                        ),
                                       ),
-                                    ),
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      timeVal,
-                                      style: const TextStyle(
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.bold,
-                                        color: Color(0xFF1C1F3E),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        timeVal,
+                                        style: const TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.bold,
+                                          color: Color(0xFF1C1F3E),
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
                                       ),
-                                    ),
-                                  ],
+                                    ],
+                                  ),
                                 ),
                               ],
                             ),
@@ -442,7 +902,7 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            widget.booking['service_name'] ?? 'Cleaning Service',
+                            _getVal('service_name') ?? 'Cleaning Service',
                             style: const TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.bold,
@@ -460,7 +920,7 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
                         ],
                       ),
                       Text(
-                        '₹${widget.booking['payable_amount'] ?? widget.booking['amount'] ?? 450}',
+                        '₹${_getVal('payable_amount') ?? _getVal('amount') ?? 450}',
                         style: const TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
@@ -488,7 +948,7 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
                             ),
                           ),
                           Text(
-                            '₹${widget.booking['payable_amount'] ?? widget.booking['amount'] ?? 450}',
+                            '₹${_getVal('payable_amount') ?? _getVal('amount') ?? 450}',
                             style: const TextStyle(
                               fontSize: 13,
                               color: Color(0xFF1C1F3E),
@@ -510,7 +970,7 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
                             ),
                           ),
                           Text(
-                            '₹${((widget.booking['payable_amount'] ?? widget.booking['amount'] ?? 450) * 0.2).toStringAsFixed(0)}',
+                            '₹${((_getVal('payable_amount') ?? _getVal('amount') ?? 450) * 0.2).toStringAsFixed(0)}',
                             style: const TextStyle(
                               fontSize: 13,
                               color: Colors.red,
@@ -538,7 +998,7 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
                             ),
                           ),
                           Text(
-                            '₹${((widget.booking['payable_amount'] ?? widget.booking['amount'] ?? 450) * 0.8).toStringAsFixed(0)}',
+                            '₹${((_getVal('payable_amount') ?? _getVal('amount') ?? 450) * 0.8).toStringAsFixed(0)}',
                             style: const TextStyle(
                               fontSize: 18,
                               fontWeight: FontWeight.bold,
@@ -550,6 +1010,7 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
                     ],
                   ),
                 ),
+                _buildPaymentStatusSection(),
               ],
             ),
           ),
@@ -565,17 +1026,28 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
                 child: widget.isNewJob
                     ? ElevatedButton(
                         onPressed: () async {
+                          final reqId = (_getVal('requestId') ?? _getVal('request_id') ?? _getVal('_id'))?.toString() ?? '';
                           final success = await ref
                               .read(jobsProvider.notifier)
-                              .acceptJob(widget.booking.requestId);
-                          if (success && mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Job accepted successfully!'),
-                                backgroundColor: Color(0xFF2E7D32),
-                              ),
-                            );
-                            Navigator.pop(context);
+                              .acceptJob(reqId);
+                          if (mounted) {
+                            if (success) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Job accepted successfully!'),
+                                  backgroundColor: Color(0xFF2E7D32),
+                                ),
+                              );
+                              Navigator.pop(context);
+                            } else {
+                              final err = ref.read(jobsProvider).errorMessage ?? 'Failed to accept job';
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(err),
+                                  backgroundColor: Colors.red,
+                                ),
+                              );
+                            }
                           }
                         },
                         style: ElevatedButton.styleFrom(
@@ -596,9 +1068,12 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
                       )
                     : ElevatedButton.icon(
                         onPressed: () async {
+                          final beforePhotosToSend = _beforePhotos.isNotEmpty
+                              ? _beforePhotos
+                              : ['data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='];
                           final success = await ref
                               .read(jobsProvider.notifier)
-                              .startService(widget.booking['_id'], ['https://cloudinary.com/mock-before.jpg']);
+                              .startService(_getVal('_id'), beforePhotosToSend);
                           if (success && mounted) {
                             setState(() {
                               _stepIndex = 1;
@@ -790,8 +1265,7 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
   }
 
   Widget _buildStep2ServiceInProgressView() {
-    final user = widget.booking['user_id'] ?? {};
-    final userName = user['name'] ?? 'Virat Sharma';
+    final userName = _getCustomerName();
     
     return Expanded(
       child: Stack(
@@ -843,7 +1317,7 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            widget.booking['service_name'] ?? 'Cleaning Service',
+                            _getVal('service_name') ?? 'Cleaning Service',
                             style: const TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.bold,
@@ -861,7 +1335,7 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
                         ],
                       ),
                       Text(
-                        '₹${widget.booking['payable_amount'] ?? widget.booking['amount'] ?? 450}',
+                        '₹${_getVal('payable_amount') ?? _getVal('amount') ?? 450}',
                         style: const TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
@@ -902,7 +1376,7 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
                               ),
                               const SizedBox(height: 2),
                               Text(
-                                widget.booking['booking_id'] ?? '#BC-88241',
+                                _getVal('booking_id') ?? '#BC-88241',
                                 style: const TextStyle(
                                   fontSize: 13,
                                   fontWeight: FontWeight.bold,
@@ -920,7 +1394,7 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
                             child: SizedBox(
                               height: 44,
                               child: ElevatedButton.icon(
-                                onPressed: () {},
+                                onPressed: _openChat,
                                 icon: const Icon(
                                   Icons.chat_bubble_outline,
                                   color: Color(0xFF0F9D58),
@@ -949,7 +1423,7 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
                             child: SizedBox(
                               height: 44,
                               child: ElevatedButton.icon(
-                                onPressed: () {},
+                                onPressed: _makePhoneCall,
                                 icon: const Icon(
                                   Icons.phone_outlined,
                                   color: Color(0xFF16155D),
@@ -981,73 +1455,86 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
 
                 // Service Photos Section
                 _buildSectionHeader('Service Photos'),
-                Row(
-                  children: [
-                    _buildDashedPhotoContainer(
-                      title: 'Before Photos',
-                      isUploaded: true,
-                      onTap: () {},
-                    ),
-                    const SizedBox(width: 16),
-                    _buildDashedPhotoContainer(
-                      title: 'After Photos',
-                      isUploaded: _afterPhotosUploaded,
-                      onTap: () {
-                        setState(() {
-                          _afterPhotosUploaded = !_afterPhotosUploaded;
-                        });
-                      },
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    const Expanded(
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.check_circle,
-                            color: Color(0xFF0F9D58),
-                            size: 14,
-                          ),
-                          SizedBox(width: 4),
-                          Text(
-                            'Uploaded',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Color(0xFF0F9D58),
-                              fontWeight: FontWeight.w600,
+                Builder(
+                  builder: (context) {
+                    final rawBefore = _getVal('beforePhotos');
+                    final bool hasSavedBefore = rawBefore != null && rawBefore is List && rawBefore.isNotEmpty;
+                    final bool isBeforeUploaded = _beforePhotos.isNotEmpty || hasSavedBefore;
+
+                    final rawAfter = _getVal('afterPhotos');
+                    final bool hasSavedAfter = rawAfter != null && rawAfter is List && rawAfter.isNotEmpty;
+                    final bool isAfterUploaded = _afterPhotos.isNotEmpty || _afterPhotosUploaded || hasSavedAfter;
+
+                    return Column(
+                      children: [
+                        Row(
+                          children: [
+                            _buildDashedPhotoContainer(
+                              title: 'Before Photos',
+                              isUploaded: isBeforeUploaded,
+                              onTap: () => _pickPhoto(isBefore: true),
                             ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            _afterPhotosUploaded ? Icons.check_circle : Icons.circle,
-                            color: _afterPhotosUploaded ? const Color(0xFF0F9D58) : Colors.black12,
-                            size: _afterPhotosUploaded ? 14 : 6,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            _afterPhotosUploaded ? 'Uploaded' : 'Pending completion',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: _afterPhotosUploaded ? const Color(0xFF0F9D58) : Colors.black38,
-                              fontWeight: FontWeight.w600,
+                            const SizedBox(width: 16),
+                            _buildDashedPhotoContainer(
+                              title: 'After Photos',
+                              isUploaded: isAfterUploaded,
+                              onTap: () => _pickPhoto(isBefore: false),
                             ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    isBeforeUploaded ? Icons.check_circle : Icons.circle,
+                                    color: isBeforeUploaded ? const Color(0xFF0F9D58) : Colors.black12,
+                                    size: isBeforeUploaded ? 14 : 6,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    isBeforeUploaded ? 'Uploaded' : 'Pending upload',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: isBeforeUploaded ? const Color(0xFF0F9D58) : Colors.black38,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    isAfterUploaded ? Icons.check_circle : Icons.circle,
+                                    color: isAfterUploaded ? const Color(0xFF0F9D58) : Colors.black12,
+                                    size: isAfterUploaded ? 14 : 6,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    isAfterUploaded ? 'Uploaded' : 'Pending completion',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: isAfterUploaded ? const Color(0xFF0F9D58) : Colors.black38,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    );
+                  },
                 ),
+                _buildPaymentStatusSection(),
                 const SizedBox(height: 24),
               ],
             ),
@@ -1062,16 +1549,21 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
                 width: double.infinity,
                 height: 54,
                 child: ElevatedButton.icon(
-                  onPressed: _afterPhotosUploaded
-                      ? () async {
-                          final success = await ref
-                              .read(jobsProvider.notifier)
-                              .finishService(widget.booking['_id'], ['https://cloudinary.com/mock-after.jpg']);
-                          if (success && mounted) {
-                            setState(() {
-                              _stepIndex = 3; // Move to entering End OTP
-                            });
-                          }
+                  onPressed: (_afterPhotos.isNotEmpty || _afterPhotosUploaded)
+                      ? () {
+                          _showCodCashCollectionDialog(() async {
+                            final afterPhotosToSend = _afterPhotos.isNotEmpty
+                                ? _afterPhotos
+                                : ['data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='];
+                            final success = await ref
+                                .read(jobsProvider.notifier)
+                                .finishService(_getVal('_id'), afterPhotosToSend);
+                            if (success && mounted) {
+                              setState(() {
+                                _stepIndex = 3; // Move to entering End OTP
+                              });
+                            }
+                          });
                         }
                       : null,
                   icon: Icon(
@@ -1227,7 +1719,7 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
       activeContent = _buildStep3EnterEndOtpView();
     }
 
-    final String serviceTitle = widget.booking['service_name'] ?? 'Service Details';
+    final String serviceTitle = _getVal('service_name') ?? 'Service Details';
 
     return Scaffold(
       backgroundColor: const Color(0xFFFAFAFC),

@@ -1,4 +1,12 @@
+import 'dart:io';
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:partner_app/providers/auth_provider.dart';
+import 'package:partner_app/providers/provider_profile_provider.dart';
+import 'package:partner_app/providers/job_dispatch_provider.dart';
+import 'package:partner_app/screens/onboarding/onboarding_screen.dart';
 import 'package:partner_app/screens/finance/loans_screen.dart';
 import 'package:partner_app/screens/profile/profile_identity_verification_screen.dart';
 import 'package:partner_app/screens/jobs/calendar_screen.dart';
@@ -6,9 +14,88 @@ import 'package:partner_app/screens/jobs/job_history_screen.dart';
 import 'package:partner_app/screens/finance/credits_screen.dart';
 import 'package:partner_app/screens/profile/performance_screen.dart';
 import 'package:partner_app/screens/finance/insurance_screen.dart';
+import 'package:partner_app/screens/shop/shop_screen.dart';
+import 'package:partner_app/screens/profile/subscription_screen.dart';
+import 'package:partner_app/screens/profile/referral_screen.dart';
 
-class ProfileScreen extends StatelessWidget {
+class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
+
+  @override
+  ConsumerState<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends ConsumerState<ProfileScreen> {
+  String? _localSelfiePath;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadLocalSelfie();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(providerProfileProvider.notifier).fetchProfile();
+    });
+  }
+
+  Future<void> _loadLocalSelfie() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedPath = prefs.getString('local_selfie_path');
+      if (savedPath != null && File(savedPath).existsSync()) {
+        setState(() {
+          _localSelfiePath = savedPath;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading local selfie path: $e');
+    }
+  }
+
+  ImageProvider? _resolveProfileImageProvider(String? remoteOrLocalPath) {
+    // 1. Try local selfie file if it exists
+    if (_localSelfiePath != null && _localSelfiePath!.isNotEmpty) {
+      final file = File(_localSelfiePath!);
+      if (file.existsSync()) {
+        return FileImage(file);
+      }
+    }
+
+    if (remoteOrLocalPath == null || remoteOrLocalPath.trim().isEmpty) {
+      return null;
+    }
+
+    final pathStr = remoteOrLocalPath.trim();
+
+    // 2. Try file path
+    if (pathStr.startsWith('/') || pathStr.startsWith('file:') || (pathStr.length > 3 && pathStr[1] == ':')) {
+      final cleanPath = pathStr.replaceFirst('file://', '');
+      final file = File(cleanPath);
+      if (file.existsSync()) {
+        return FileImage(file);
+      }
+    }
+
+    // 3. Try Base64 string
+    if (pathStr.startsWith('data:image/') || pathStr.startsWith('data:;base64,')) {
+      try {
+        final base64Content = pathStr.split(',').last;
+        final bytes = base64Decode(base64Content);
+        return MemoryImage(bytes);
+      } catch (_) {}
+    } else if (!pathStr.startsWith('http://') && !pathStr.startsWith('https://') && pathStr.length > 100) {
+      try {
+        final bytes = base64Decode(pathStr);
+        return MemoryImage(bytes);
+      } catch (_) {}
+    }
+
+    // 4. Try Network URL
+    if (pathStr.startsWith('http://') || pathStr.startsWith('https://')) {
+      return NetworkImage(pathStr);
+    }
+
+    return null;
+  }
 
   Widget _buildTopBar() {
     return const Padding(
@@ -25,6 +112,39 @@ class ProfileScreen extends StatelessWidget {
   }
 
   Widget _buildProfileCard() {
+    final authState = ref.watch(authProvider);
+    final profileState = ref.watch(providerProfileProvider);
+    final dispatchState = ref.watch(jobDispatchProvider);
+
+    final user = authState.user;
+    final profileData = profileState.profileData;
+
+    final name = (user?.name != null && user!.name!.isNotEmpty)
+        ? user.name!
+        : (profileData != null && profileData['name'] != null && profileData['name'].toString().isNotEmpty)
+            ? profileData['name'].toString()
+            : 'Partner';
+
+    final email = (user?.email != null && user!.email!.isNotEmpty)
+        ? user.email!
+        : (profileData?['email'] != null)
+            ? profileData!['email'].toString()
+            : '';
+
+    final phone = (user?.phone != null && user!.phone!.isNotEmpty)
+        ? user.phone!
+        : (profileData?['phone'] != null)
+            ? profileData!['phone'].toString()
+            : '';
+
+    final rawImage = user?.profileImage ??
+        profileData?['user_id']?['profile_image']?.toString() ??
+        profileData?['profile_image']?.toString() ??
+        profileData?['verification_docs']?['id_proof_url']?.toString();
+
+    final imageProvider = _resolveProfileImageProvider(rawImage);
+    final isOnline = dispatchState.isOnline;
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 8.0),
       child: Container(
@@ -46,18 +166,23 @@ class ProfileScreen extends StatelessWidget {
             // Left Profile Picture with Available Badge
             Column(
               children: [
-                const CircleAvatar(
+                CircleAvatar(
                   radius: 46,
-                  backgroundImage: NetworkImage(
-                    'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150',
-                  ),
-                  backgroundColor: Color(0xFFEFF1FE),
+                  backgroundColor: const Color(0xFFEFF1FE),
+                  backgroundImage: imageProvider,
+                  child: imageProvider == null
+                      ? const Icon(
+                          Icons.person,
+                          size: 46,
+                          color: Color(0xFF16155D),
+                        )
+                      : null,
                 ),
                 const SizedBox(height: 12),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFE8F5E9),
+                    color: isOnline ? const Color(0xFFE8F5E9) : const Color(0xFFFFEFEF),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Row(
@@ -66,18 +191,18 @@ class ProfileScreen extends StatelessWidget {
                       Container(
                         width: 6,
                         height: 6,
-                        decoration: const BoxDecoration(
-                          color: Color(0xFF2E7D32),
+                        decoration: BoxDecoration(
+                          color: isOnline ? const Color(0xFF2E7D32) : Colors.red,
                           shape: BoxShape.circle,
                         ),
                       ),
                       const SizedBox(width: 6),
-                      const Text(
-                        'Available',
+                      Text(
+                        isOnline ? 'Available' : 'Offline',
                         style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.bold,
-                          color: Color(0xFF2E7D32),
+                          color: isOnline ? const Color(0xFF2E7D32) : Colors.red,
                         ),
                       ),
                     ],
@@ -94,9 +219,9 @@ class ProfileScreen extends StatelessWidget {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text(
-                        'Muthupandi P',
-                        style: TextStyle(
+                      Text(
+                        name,
+                        style: const TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
                           color: Color(0xFF1C1F3E),
@@ -115,17 +240,17 @@ class ProfileScreen extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 6),
-                  const Text(
-                    '8912451212',
-                    style: TextStyle(
+                  Text(
+                    phone,
+                    style: const TextStyle(
                       fontSize: 13,
                       color: Colors.black38,
                     ),
                   ),
                   const SizedBox(height: 4),
-                  const Text(
-                    'chellom.muthupandi@gmail.\ncom',
-                    style: TextStyle(
+                  Text(
+                    email,
+                    style: const TextStyle(
                       fontSize: 13,
                       color: Colors.black38,
                       height: 1.3,
@@ -316,8 +441,24 @@ class ProfileScreen extends StatelessWidget {
                 icon: Icons.shopping_bag_outlined,
                 title: 'Shop',
                 onTap: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Shop coming soon!')),
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const ShopScreen(),
+                    ),
+                  );
+                },
+              ),
+              const Divider(height: 1, color: Color(0xFFEFF1FE)),
+              _buildListTile(
+                icon: Icons.card_membership_outlined,
+                title: 'Subscription',
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const SubscriptionScreen(),
+                    ),
                   );
                 },
               ),
@@ -326,8 +467,11 @@ class ProfileScreen extends StatelessWidget {
                 icon: Icons.people_outline,
                 title: 'Invite a friend',
                 onTap: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Invite program coming soon!')),
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const ReferralScreen(),
+                    ),
                   );
                 },
               ),
@@ -381,9 +525,17 @@ class ProfileScreen extends StatelessWidget {
                 icon: Icons.logout_outlined,
                 title: 'Logout',
                 isDestructive: true,
-                onTap: () {
-                  // Returns the user to the onboarding screen (root first screen)
-                  Navigator.popUntil(context, (route) => route.isFirst);
+                onTap: () async {
+                  await ref.read(authProvider.notifier).logout();
+                  if (context.mounted) {
+                    Navigator.pushAndRemoveUntil(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const OnboardingScreen(),
+                      ),
+                      (route) => false,
+                    );
+                  }
                 },
               ),
             ],

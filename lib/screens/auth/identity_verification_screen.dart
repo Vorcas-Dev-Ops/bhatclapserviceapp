@@ -1,17 +1,409 @@
 import 'dart:ui';
+import 'dart:io';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:cunning_document_scanner/cunning_document_scanner.dart';
 import 'package:partner_app/providers/provider_profile_provider.dart';
+import 'package:partner_app/providers/auth_provider.dart';
+import 'package:partner_app/screens/auth/select_service_location_screen.dart';
 import 'package:partner_app/screens/auth/bank_details_screen.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:partner_app/services/token_storage.dart';
 
 class IdentityVerificationScreen extends ConsumerStatefulWidget {
-  const IdentityVerificationScreen({super.key});
+  final bool fromProfile;
+  const IdentityVerificationScreen({super.key, this.fromProfile = false});
 
   @override
   ConsumerState<IdentityVerificationScreen> createState() => _IdentityVerificationScreenState();
 }
 
 class _IdentityVerificationScreenState extends ConsumerState<IdentityVerificationScreen> {
+  String? _selfiePath;
+  String? _aadhaarFrontPath;
+  String? _aadhaarBackPath;
+  String? _panFrontPath;
+  String? _panBackPath;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSavedDocuments();
+  }
+
+  Future<void> _loadSavedDocuments() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      setState(() {
+        _selfiePath = prefs.getString('local_selfie_path');
+        _aadhaarFrontPath = prefs.getString('local_aadhaar_front_path');
+        _aadhaarBackPath = prefs.getString('local_aadhaar_back_path');
+        _panFrontPath = prefs.getString('local_pan_front_path');
+        _panBackPath = prefs.getString('local_pan_back_path');
+      });
+    } catch (e) {
+      debugPrint('Error loading saved documents: $e');
+    }
+  }
+
+  Future<String?> _saveSingleDocumentLocally(String tempPath, String prefKey, String prefix) async {
+    try {
+      final directory = await getApplicationDocumentsDirectory();
+      final prefs = await SharedPreferences.getInstance();
+
+      final tempFile = File(tempPath);
+      if (await tempFile.exists()) {
+        final extension = tempPath.split('.').last;
+        final localFile = File('${directory.path}/${prefix}_${DateTime.now().millisecondsSinceEpoch}.$extension');
+        await tempFile.copy(localFile.path);
+        await prefs.setString(prefKey, localFile.path);
+        return localFile.path;
+      }
+    } catch (e) {
+      debugPrint('Error saving single document locally: $e');
+    }
+    return null;
+  }
+
+  Future<void> _takeSelfie() async {
+    final status = await Permission.camera.request();
+    if (status.isGranted) {
+      final ImagePicker picker = ImagePicker();
+      final XFile? photo = await picker.pickImage(
+        source: ImageSource.camera,
+        preferredCameraDevice: CameraDevice.front,
+        maxWidth: 400,
+        maxHeight: 400,
+        imageQuality: 40,
+      );
+      if (photo != null) {
+        final savedPath = await _saveSingleDocumentLocally(photo.path, 'local_selfie_path', 'selfie');
+        setState(() {
+          _selfiePath = savedPath ?? photo.path;
+        });
+      }
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Camera permission is required to take a selfie.')),
+        );
+      }
+    }
+  }
+
+  Future<void> _scanAadhaarFront() async {
+    final status = await Permission.camera.request();
+    if (status.isGranted) {
+      try {
+        List<String>? pictures = await CunningDocumentScanner.getPictures(
+          androidScannerMode: AndroidScannerMode.base,
+        );
+        if (pictures != null && pictures.isNotEmpty) {
+          final savedPath = await _saveSingleDocumentLocally(pictures.first, 'local_aadhaar_front_path', 'aadhaar_front');
+          setState(() {
+            _aadhaarFrontPath = savedPath ?? pictures.first;
+          });
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Scanner error: $e')),
+          );
+        }
+      }
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Camera permission is required to scan documents.')),
+        );
+      }
+    }
+  }
+
+  Future<void> _scanAadhaarBack() async {
+    final status = await Permission.camera.request();
+    if (status.isGranted) {
+      try {
+        List<String>? pictures = await CunningDocumentScanner.getPictures(
+          androidScannerMode: AndroidScannerMode.base,
+        );
+        if (pictures != null && pictures.isNotEmpty) {
+          final savedPath = await _saveSingleDocumentLocally(pictures.first, 'local_aadhaar_back_path', 'aadhaar_back');
+          setState(() {
+            _aadhaarBackPath = savedPath ?? pictures.first;
+          });
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Scanner error: $e')),
+          );
+        }
+      }
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Camera permission is required to scan documents.')),
+        );
+      }
+    }
+  }
+
+  Future<void> _scanPanFront() async {
+    final status = await Permission.camera.request();
+    if (status.isGranted) {
+      try {
+        List<String>? pictures = await CunningDocumentScanner.getPictures(
+          androidScannerMode: AndroidScannerMode.base,
+        );
+        if (pictures != null && pictures.isNotEmpty) {
+          final savedPath = await _saveSingleDocumentLocally(pictures.first, 'local_pan_front_path', 'pan_front');
+          setState(() {
+            _panFrontPath = savedPath ?? pictures.first;
+          });
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Scanner error: $e')),
+          );
+        }
+      }
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Camera permission is required to scan documents.')),
+        );
+      }
+    }
+  }
+
+  Future<void> _scanPanBack() async {
+    final status = await Permission.camera.request();
+    if (status.isGranted) {
+      try {
+        List<String>? pictures = await CunningDocumentScanner.getPictures(
+          androidScannerMode: AndroidScannerMode.base,
+        );
+        if (pictures != null && pictures.isNotEmpty) {
+          final savedPath = await _saveSingleDocumentLocally(pictures.first, 'local_pan_back_path', 'pan_back');
+          setState(() {
+            _panBackPath = savedPath ?? pictures.first;
+          });
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Scanner error: $e')),
+          );
+        }
+      }
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Camera permission is required to scan documents.')),
+        );
+      }
+    }
+  }
+
+  Future<void> _pickFromGallery(String prefKey, String prefix, Function(String) onSaved) async {
+    try {
+      final ImagePicker picker = ImagePicker();
+      final XFile? photo = await picker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1200,
+        maxHeight: 1200,
+        imageQuality: 80,
+      );
+      if (photo != null) {
+        final savedPath = await _saveSingleDocumentLocally(photo.path, prefKey, prefix);
+        setState(() {
+          onSaved(savedPath ?? photo.path);
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error selecting file: $e')),
+        );
+      }
+    }
+  }
+
+  void _showUploadOptions({
+    required String documentTitle,
+    required String scanOptionTitle,
+    required String scanOptionSubtitle,
+    required IconData scanIcon,
+    required VoidCallback onScan,
+    required VoidCallback onPickGallery,
+  }) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Upload $documentTitle',
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF16155D),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  'Choose how you would like to provide this document',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Colors.black45,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                InkWell(
+                  onTap: () {
+                    Navigator.pop(context);
+                    onScan();
+                  },
+                  borderRadius: BorderRadius.circular(16),
+                  child: Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF5F6FA),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: const Color(0xFFE5E7EB)),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF16155D).withAlpha(20),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            scanIcon,
+                            color: const Color(0xFF16155D),
+                            size: 24,
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                scanOptionTitle,
+                                style: const TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF16155D),
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                scanOptionSubtitle,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.black45,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const Icon(Icons.chevron_right, color: Colors.black38),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                InkWell(
+                  onTap: () {
+                    Navigator.pop(context);
+                    onPickGallery();
+                  },
+                  borderRadius: BorderRadius.circular(16),
+                  child: Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF5F6FA),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: const Color(0xFFE5E7EB)),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF16155D).withAlpha(20),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.photo_library_outlined,
+                            color: Color(0xFF16155D),
+                            size: 24,
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Upload from Device',
+                                style: TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF16155D),
+                                ),
+                              ),
+                              SizedBox(height: 2),
+                              Text(
+                                'Select photo or image from gallery/device',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.black45,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const Icon(Icons.chevron_right, color: Colors.black38),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   Widget _buildDashedContainer({required double height, required Widget child}) {
     return CustomPaint(
       painter: DashedRectPainter(
@@ -32,18 +424,62 @@ class _IdentityVerificationScreenState extends ConsumerState<IdentityVerificatio
     );
   }
 
-  Widget _buildCameraIcon() {
-    return Container(
-      width: 70,
-      height: 70,
-      decoration: BoxDecoration(
-        color: const Color(0xFFF5F6FA),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: const Icon(
-        Icons.add_a_photo_outlined,
-        color: Color(0xFF16155D),
-        size: 26,
+  Widget _buildCardSideUpload({
+    required String title,
+    required String? imagePath,
+    required VoidCallback onTap,
+  }) {
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: _buildDashedContainer(
+          height: 110,
+          child: imagePath != null
+              ? Stack(
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(16),
+                      child: Image.file(
+                        File(imagePath),
+                        fit: BoxFit.cover,
+                        width: double.infinity,
+                        height: 110,
+                      ),
+                    ),
+                    Positioned(
+                      top: 6,
+                      right: 6,
+                      child: Container(
+                        padding: const EdgeInsets.all(5),
+                        decoration: const BoxDecoration(
+                          color: Color(0xFF16155D),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.edit, color: Colors.white, size: 14),
+                      ),
+                    ),
+                  ],
+                )
+              : Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(
+                      Icons.camera_alt_outlined,
+                      color: Color(0xFF16155D),
+                      size: 26,
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: Colors.black45,
+                      ),
+                    ),
+                  ],
+                ),
+        ),
       ),
     );
   }
@@ -69,26 +505,68 @@ class _IdentityVerificationScreenState extends ConsumerState<IdentityVerificatio
           ),
         ),
         const SizedBox(height: 12),
-        _buildDashedContainer(
-          height: 100,
-          child: const Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                Icons.cloud_upload_outlined,
-                color: Color(0xFF16155D),
-                size: 28,
+        GestureDetector(
+          onTap: () {
+            _showUploadOptions(
+              documentTitle: 'Selfie Verification',
+              scanOptionTitle: 'Take Selfie Photo',
+              scanOptionSubtitle: 'Use front camera to capture photo',
+              scanIcon: Icons.camera_front_outlined,
+              onScan: _takeSelfie,
+              onPickGallery: () => _pickFromGallery(
+                'local_selfie_path',
+                'selfie',
+                (path) => _selfiePath = path,
               ),
-              SizedBox(height: 6),
-              Text(
-                'Upload or take a photo',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w500,
-                  color: Colors.black38,
-                ),
-              ),
-            ],
+            );
+          },
+          child: _buildDashedContainer(
+            height: 100,
+            child: _selfiePath != null
+                ? Stack(
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(16),
+                        child: Image.file(
+                          File(_selfiePath!),
+                          fit: BoxFit.cover,
+                          width: double.infinity,
+                          height: 100,
+                        ),
+                      ),
+                      Positioned(
+                        top: 6,
+                        right: 6,
+                        child: Container(
+                          padding: const EdgeInsets.all(5),
+                          decoration: const BoxDecoration(
+                            color: Color(0xFF16155D),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(Icons.edit, color: Colors.white, size: 14),
+                        ),
+                      ),
+                    ],
+                  )
+                : const Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.cloud_upload_outlined,
+                        color: Color(0xFF16155D),
+                        size: 28,
+                      ),
+                      SizedBox(height: 6),
+                      Text(
+                        'Upload or take a photo',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                          color: Colors.black38,
+                        ),
+                      ),
+                    ],
+                  ),
           ),
         ),
       ],
@@ -109,81 +587,53 @@ class _IdentityVerificationScreenState extends ConsumerState<IdentityVerificatio
         ),
         const SizedBox(height: 4),
         const Text(
-          'Upload a clear photo of your Aadhaar Card',
+          'Upload front and back photos of your Aadhaar Card',
           style: TextStyle(
             fontSize: 12,
             color: Colors.black45,
           ),
         ),
         const SizedBox(height: 12),
-        _buildDashedContainer(
-          height: 110,
-          child: Padding(
-            padding: const EdgeInsets.all(12.0),
-            child: Row(
-              children: [
-                // Mock Aadhaar Card
-                Expanded(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFFCFCFD),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: const Color(0xFFE5E7EB)),
-                    ),
-                    child: Row(
-                      children: [
-                        // Profile Pic Mock
-                        Container(
-                          width: 40,
-                          height: 50,
-                          color: const Color(0xFFE5E7EB),
-                          child: const Icon(Icons.person, size: 24, color: Colors.black26),
-                        ),
-                        const SizedBox(width: 10),
-                        // Text Lines Mock
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              // Government Text
-                              Row(
-                                children: [
-                                  Container(width: 8, height: 8, decoration: const BoxDecoration(color: Colors.orange, shape: BoxShape.circle)),
-                                  const SizedBox(width: 4),
-                                  Container(width: 40, height: 4, color: Colors.black12),
-                                ],
-                              ),
-                              const SizedBox(height: 8),
-                              // Name
-                              Container(width: 60, height: 4, color: Colors.black26),
-                              const SizedBox(height: 4),
-                              // Aadhaar Number (simulated red number from design)
-                              const Text(
-                                '7632 7365 9842',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.redAccent,
-                                  letterSpacing: 0.5,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              // Footer Green Line
-                              Container(width: double.infinity, height: 3, color: Colors.green.shade400),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
+        Row(
+          children: [
+            _buildCardSideUpload(
+              title: 'Front Side',
+              imagePath: _aadhaarFrontPath,
+              onTap: () {
+                _showUploadOptions(
+                  documentTitle: 'Aadhaar Front Side',
+                  scanOptionTitle: 'Scan Document',
+                  scanOptionSubtitle: 'Use camera scanner with auto-crop',
+                  scanIcon: Icons.document_scanner_outlined,
+                  onScan: _scanAadhaarFront,
+                  onPickGallery: () => _pickFromGallery(
+                    'local_aadhaar_front_path',
+                    'aadhaar_front',
+                    (path) => _aadhaarFrontPath = path,
                   ),
-                ),
-                const SizedBox(width: 16),
-                _buildCameraIcon(),
-              ],
+                );
+              },
             ),
-          ),
+            const SizedBox(width: 12),
+            _buildCardSideUpload(
+              title: 'Back Side',
+              imagePath: _aadhaarBackPath,
+              onTap: () {
+                _showUploadOptions(
+                  documentTitle: 'Aadhaar Back Side',
+                  scanOptionTitle: 'Scan Document',
+                  scanOptionSubtitle: 'Use camera scanner with auto-crop',
+                  scanIcon: Icons.document_scanner_outlined,
+                  onScan: _scanAadhaarBack,
+                  onPickGallery: () => _pickFromGallery(
+                    'local_aadhaar_back_path',
+                    'aadhaar_back',
+                    (path) => _aadhaarBackPath = path,
+                  ),
+                );
+              },
+            ),
+          ],
         ),
       ],
     );
@@ -203,81 +653,53 @@ class _IdentityVerificationScreenState extends ConsumerState<IdentityVerificatio
         ),
         const SizedBox(height: 4),
         const Text(
-          'Upload a clear photo of your Pan Card',
+          'Upload front and back photos of your Pan Card',
           style: TextStyle(
             fontSize: 12,
             color: Colors.black45,
           ),
         ),
         const SizedBox(height: 12),
-        _buildDashedContainer(
-          height: 110,
-          child: Padding(
-            padding: const EdgeInsets.all(12.0),
-            child: Row(
-              children: [
-                // Mock PAN Card
-                Expanded(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [const Color(0xFFEBF3FC), const Color(0xFFE1EDFA)],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: const Color(0xFFD0E1F5)),
-                    ),
-                    child: Row(
-                      children: [
-                        // Profile Pic Mock
-                        Container(
-                          width: 40,
-                          height: 50,
-                          color: const Color(0x0D000000),
-                          child: const Icon(Icons.person, size: 24, color: Colors.black12),
-                        ),
-                        const SizedBox(width: 10),
-                        // PAN Text Lines Mock
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              // Header
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Container(width: 30, height: 4, color: Colors.black26),
-                                  Container(width: 10, height: 10, decoration: const BoxDecoration(color: Colors.orange, shape: BoxShape.circle)),
-                                ],
-                              ),
-                              const SizedBox(height: 6),
-                              Container(width: 50, height: 4, color: Colors.black12),
-                              const SizedBox(height: 4),
-                              Container(width: 70, height: 4, color: Colors.black12),
-                              const SizedBox(height: 6),
-                              // Hologram/Barcode Mock
-                              Row(
-                                children: [
-                                  Container(width: 15, height: 15, color: Colors.amber.shade300),
-                                  const SizedBox(width: 8),
-                                  Container(width: 45, height: 8, color: Colors.black38),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
+        Row(
+          children: [
+            _buildCardSideUpload(
+              title: 'Front Side',
+              imagePath: _panFrontPath,
+              onTap: () {
+                _showUploadOptions(
+                  documentTitle: 'PAN Front Side',
+                  scanOptionTitle: 'Scan Document',
+                  scanOptionSubtitle: 'Use camera scanner with auto-crop',
+                  scanIcon: Icons.document_scanner_outlined,
+                  onScan: _scanPanFront,
+                  onPickGallery: () => _pickFromGallery(
+                    'local_pan_front_path',
+                    'pan_front',
+                    (path) => _panFrontPath = path,
                   ),
-                ),
-                const SizedBox(width: 16),
-                _buildCameraIcon(),
-              ],
+                );
+              },
             ),
-          ),
+            const SizedBox(width: 12),
+            _buildCardSideUpload(
+              title: 'Back Side',
+              imagePath: _panBackPath,
+              onTap: () {
+                _showUploadOptions(
+                  documentTitle: 'PAN Back Side',
+                  scanOptionTitle: 'Scan Document',
+                  scanOptionSubtitle: 'Use camera scanner with auto-crop',
+                  scanIcon: Icons.document_scanner_outlined,
+                  onScan: _scanPanBack,
+                  onPickGallery: () => _pickFromGallery(
+                    'local_pan_back_path',
+                    'pan_back',
+                    (path) => _panBackPath = path,
+                  ),
+                );
+              },
+            ),
+          ],
         ),
       ],
     );
@@ -369,7 +791,16 @@ class _IdentityVerificationScreenState extends ConsumerState<IdentityVerificatio
                   SizedBox(
                     height: 54,
                     child: ElevatedButton(
-                      onPressed: () => Navigator.pop(context),
+                      onPressed: () {
+                        if (Navigator.canPop(context)) {
+                          Navigator.pop(context);
+                        } else {
+                          Navigator.pushReplacement(
+                            context,
+                            MaterialPageRoute(builder: (context) => SelectServiceLocationScreen()),
+                          );
+                        }
+                      },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFFEFF1FE),
                         foregroundColor: const Color(0xFF16155D),
@@ -402,27 +833,72 @@ class _IdentityVerificationScreenState extends ConsumerState<IdentityVerificatio
                             onPressed: isLoading
                                 ? null
                                 : () async {
+                                    if (_selfiePath == null) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(content: Text('Please upload your selfie verification photo.')),
+                                      );
+                                      return;
+                                    }
+                                    if (_aadhaarFrontPath == null || _aadhaarBackPath == null) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(content: Text('Please capture both front and back of your Aadhaar Card.')),
+                                      );
+                                      return;
+                                    }
+                                    if (_panFrontPath == null || _panBackPath == null) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(content: Text('Please capture both front and back of your Pan Card.')),
+                                      );
+                                      return;
+                                    }
+
+                                    final messenger = ScaffoldMessenger.of(context);
+                                    final navigator = Navigator.of(context);
+
+                                    // 1. Process Selfie image and upload as Profile Image
+                                    final selfieBytes = await File(_selfiePath!).readAsBytes();
+                                    final selfieMime = _selfiePath!.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
+                                    final base64Selfie = 'data:$selfieMime;base64,${base64Encode(selfieBytes)}';
+
+                                    final selfieSuccess = await ref
+                                        .read(authProvider.notifier)
+                                        .updateProfileImage(base64Selfie);
+
+                                    // 2. Process Aadhaar front image and upload as Document Image
+                                    final frontBytes = await File(_aadhaarFrontPath!).readAsBytes();
+                                    final frontMime = _aadhaarFrontPath!.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
+                                    final base64Doc = 'data:$frontMime;base64,${base64Encode(frontBytes)}';
+                                    await TokenStorage().saveIdProofUrl(base64Doc);
+
+                                    final isAlreadyVerified = ref.read(providerProfileProvider).profileData?['kyc_status'] == 'verified';
+
                                     final success = await ref
                                         .read(providerProfileProvider.notifier)
                                         .updateProfile(
                                           aadharId: '763273659842',
                                           verificationDocs: {
-                                            'id_proof_url': 'https://cloudinary.com/mock-id-proof.jpg',
+                                            'id_proof_url': base64Doc,
                                           },
                                         );
 
-                                    if (success && mounted) {
-                                      Navigator.push(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (context) => const BankDetailsScreen(),
-                                        ),
-                                      );
+                                    if ((success || isAlreadyVerified) && mounted) {
+                                      if (widget.fromProfile) {
+                                        navigator.pop();
+                                        messenger.showSnackBar(
+                                          const SnackBar(content: Text('Identity documents submitted successfully.')),
+                                        );
+                                      } else {
+                                        navigator.push(
+                                          MaterialPageRoute(
+                                            builder: (context) => const BankDetailsScreen(),
+                                          ),
+                                        );
+                                      }
                                     } else if (mounted) {
-                                      ScaffoldMessenger.of(context).showSnackBar(
+                                      messenger.showSnackBar(
                                         SnackBar(
                                           content: Text(
-                                            profileState.errorMessage ?? 'Failed to submit identity docs',
+                                            ref.read(providerProfileProvider).errorMessage ?? 'Failed to submit identity docs',
                                           ),
                                         ),
                                       );

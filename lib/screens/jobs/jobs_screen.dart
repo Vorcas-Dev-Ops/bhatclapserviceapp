@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:partner_app/providers/jobs_provider.dart';
+import 'package:partner_app/providers/provider_profile_provider.dart';
+import 'package:partner_app/screens/finance/add_credits_screen.dart';
 import 'package:partner_app/screens/jobs/job_details_screen.dart';
+import 'package:partner_app/screens/notifications/notifications_screen.dart';
+import 'package:partner_app/providers/notification_provider.dart';
 
 class JobsScreen extends ConsumerStatefulWidget {
   const JobsScreen({super.key});
@@ -19,6 +23,7 @@ class _JobsScreenState extends ConsumerState<JobsScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(jobsProvider.notifier).fetchAllJobs();
+      ref.read(notificationProvider.notifier).fetchNotifications();
     });
   }
 
@@ -32,6 +37,21 @@ class _JobsScreenState extends ConsumerState<JobsScreen> {
   }
 
   Widget _buildTopBar() {
+    final profileState = ref.watch(providerProfileProvider);
+    final profile = profileState.profileData;
+    final notificationState = ref.watch(notificationProvider);
+    final unreadCount = notificationState.unreadCount;
+    
+    String creditsText = '...';
+    if (profile != null) {
+      final walletBalance = profile['walletBalance'] ?? 0.0;
+      final reservedBalance = profile['reservedBalance'] ?? 0.0;
+      final creditLimit = profile['creditLimit'] ?? 500.0;
+      final availableCredit = (walletBalance as num).toDouble() - (reservedBalance as num).toDouble() + (creditLimit as num).toDouble();
+      final credits = (availableCredit / 10).toInt();
+      creditsText = '$credits';
+    }
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 12.0),
       child: Row(
@@ -48,88 +68,92 @@ class _JobsScreenState extends ConsumerState<JobsScreen> {
           Row(
             children: [
               // Credits Pill
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF5F6FA),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Row(
-                  children: [
-                    Stack(
-                      alignment: Alignment.center,
-                      children: [
-                        const Icon(
-                          Icons.hexagon,
-                          color: Color(0xFF2D3047),
-                          size: 20,
-                        ),
-                        Container(
-                          width: 6,
-                          height: 6,
-                          decoration: const BoxDecoration(
-                            color: Colors.white,
-                            shape: BoxShape.circle,
+              GestureDetector(
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const AddCreditsScreen()),
+                  );
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF5F6FA),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Row(
+                    children: [
+                      Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          const Icon(
+                            Icons.hexagon,
+                            color: Color(0xFF2D3047),
+                            size: 20,
                           ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(width: 8),
-                    const Text(
-                      '200',
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF2D3047),
+                          Container(
+                            width: 6,
+                            height: 6,
+                            decoration: const BoxDecoration(
+                              color: Colors.white,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                        ],
                       ),
-                    ),
-                  ],
+                      const SizedBox(width: 8),
+                      Text(
+                        creditsText,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF2D3047),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
               const SizedBox(width: 12),
               // Notification Bell with Badge
-              Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  Container(
-                    width: 40,
-                    height: 40,
-                    decoration: const BoxDecoration(
-                      color: Color(0xFFEFF1FE),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.notifications_none_outlined,
-                      color: Color(0xFF16155D),
-                      size: 22,
-                    ),
-                  ),
-                  Positioned(
-                    top: -2,
-                    right: -2,
-                    child: Container(
-                      padding: const EdgeInsets.all(4),
+              GestureDetector(
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const PartnerNotificationsScreen()),
+                  );
+                },
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Container(
+                      width: 40,
+                      height: 40,
                       decoration: const BoxDecoration(
-                        color: Color(0xFF16155D),
+                        color: Color(0xFFEFF1FE),
                         shape: BoxShape.circle,
                       ),
-                      constraints: const BoxConstraints(
-                        minWidth: 16,
-                        minHeight: 16,
+                      child: const Icon(
+                        Icons.notifications_none_outlined,
+                        color: Color(0xFF16155D),
+                        size: 22,
                       ),
-                      child: const Center(
-                        child: Text(
-                          '4',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 9,
-                            fontWeight: FontWeight.bold,
+                    ),
+                    if (unreadCount > 0)
+                      Positioned(
+                        top: 2,
+                        right: 2,
+                        child: Container(
+                          width: 10,
+                          height: 10,
+                          decoration: const BoxDecoration(
+                            color: Colors.red,
+                            shape: BoxShape.circle,
                           ),
                         ),
                       ),
-                    ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ],
           ),
@@ -243,6 +267,20 @@ class _JobsScreenState extends ConsumerState<JobsScreen> {
     );
   }
 
+  String _formatDateString(String rawDate) {
+    if (rawDate.isEmpty) return '';
+    try {
+      final dt = DateTime.tryParse(rawDate);
+      if (dt != null) {
+        return '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
+      }
+    } catch (_) {}
+    if (rawDate.contains('T')) {
+      return rawDate.split('T').first;
+    }
+    return rawDate;
+  }
+
   Widget _buildJobCard({
     required String title,
     required String earnings,
@@ -254,6 +292,7 @@ class _JobsScreenState extends ConsumerState<JobsScreen> {
     Widget? footerSection,
     required double cardHeight,
   }) {
+    final formattedDate = _formatDateString(date);
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       decoration: BoxDecoration(
@@ -272,90 +311,102 @@ class _JobsScreenState extends ConsumerState<JobsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                // Blue accent left bar
-                Container(
-                  width: 4,
-                  height: cardHeight,
-                  color: const Color(0xFF16155D),
-                ),
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
+            IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // Blue accent left bar
+                  Container(
+                    width: 4,
+                    color: const Color(0xFF16155D),
+                  ),
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      title,
+                                      style: const TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold,
+                                        color: Color(0xFF1C1F3E),
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      location,
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.black38,
+                                      ),
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  Text(
+                                    earnings,
+                                    style: const TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.bold,
+                                      color: Color(0xFF16155D),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  const Text(
+                                    'Earnings',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: Colors.black38,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          // Time Chips Row
+                          SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: Row(
                               children: [
-                                Text(
-                                  title,
-                                  style: const TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
-                                    color: Color(0xFF1C1F3E),
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  location,
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.black38,
-                                  ),
-                                ),
+                                _buildTimeChip(Icons.calendar_today_outlined, formattedDate),
+                                const SizedBox(width: 8),
+                                _buildTimeChip(Icons.access_time_outlined, time),
+                                const SizedBox(width: 8),
+                                _buildTimeChip(Icons.history_toggle_off_outlined, duration),
                               ],
                             ),
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.end,
-                              children: [
-                                Text(
-                                  earnings,
-                                  style: const TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold,
-                                    color: Color(0xFF16155D),
-                                  ),
-                                ),
-                                const SizedBox(height: 2),
-                                const Text(
-                                  'Earnings',
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    color: Colors.black38,
-                                  ),
-                                ),
-                              ],
-                            ),
+                          ),
+                          if (actionSection != null) ...[
+                            const SizedBox(height: 16),
+                            actionSection,
                           ],
-                        ),
-                        const SizedBox(height: 12),
-                        // Time Chips Row
-                        Row(
-                          children: [
-                            _buildTimeChip(Icons.calendar_today_outlined, date),
-                            const SizedBox(width: 8),
-                            _buildTimeChip(Icons.access_time_outlined, time),
-                            const SizedBox(width: 8),
-                            _buildTimeChip(Icons.history_toggle_off_outlined, duration),
-                          ],
-                        ),
-                        if (actionSection != null) ...[
-                          const SizedBox(height: 16),
-                          actionSection,
                         ],
-                      ],
+                      ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-            footerSection ?? const SizedBox.shrink(),
+            ?footerSection,
           ],
         ),
       ),
@@ -394,10 +445,17 @@ class _JobsScreenState extends ConsumerState<JobsScreen> {
                   child: ElevatedButton(
                     onPressed: () async {
                       final success = await ref.read(jobsProvider.notifier).acceptJob(job.requestId);
-                      if (success && mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Job request accepted successfully!'), backgroundColor: Colors.green),
-                        );
+                      if (mounted) {
+                        if (success) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Job request accepted successfully!'), backgroundColor: Colors.green),
+                          );
+                        } else {
+                          final err = ref.read(jobsProvider).errorMessage ?? 'Failed to accept job';
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text(err), backgroundColor: Colors.red),
+                          );
+                        }
                       }
                     },
                     style: ElevatedButton.styleFrom(
@@ -629,9 +687,17 @@ class _JobsScreenState extends ConsumerState<JobsScreen> {
         _buildTabsRow(),
         const SizedBox(height: 24),
         Expanded(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 24.0),
-            child: activeView,
+          child: RefreshIndicator(
+            color: const Color(0xFF16155D),
+            onRefresh: () async {
+              await ref.read(providerProfileProvider.notifier).fetchProfile();
+              await ref.read(jobsProvider.notifier).fetchAllJobs();
+            },
+            child: SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.symmetric(horizontal: 24.0),
+              child: activeView,
+            ),
           ),
         ),
       ],
