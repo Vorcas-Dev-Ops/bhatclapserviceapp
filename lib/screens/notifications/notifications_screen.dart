@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../providers/notification_provider.dart';
+import '../jobs/job_details_screen.dart';
 
 class PartnerNotificationsScreen extends ConsumerStatefulWidget {
   const PartnerNotificationsScreen({super.key});
@@ -64,7 +65,7 @@ class _PartnerNotificationsScreenState extends ConsumerState<PartnerNotification
                       child: ListView.separated(
                         padding: const EdgeInsets.symmetric(vertical: 8),
                         itemCount: notifications.length,
-                        separatorBuilder: (_, __) => const Divider(height: 1),
+                        separatorBuilder: (context, index) => const Divider(height: 1),
                         itemBuilder: (context, index) {
                           final item = notifications[index];
                           final isRead = item['is_read'] ?? false;
@@ -92,6 +93,18 @@ class _PartnerNotificationsScreenState extends ConsumerState<PartnerNotification
                             onTap: () {
                               if (!isRead && item['_id'] != null) {
                                 ref.read(notificationProvider.notifier).markAsRead(item['_id']);
+                              }
+                              final metadata = item['metadata'];
+                              if (metadata != null && metadata is Map) {
+                                final bId = metadata['booking_id'] ?? metadata['booking'];
+                                if (bId != null) {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => JobDetailsScreen(bookingId: bId.toString()),
+                                    ),
+                                  );
+                                }
                               }
                             },
                           );

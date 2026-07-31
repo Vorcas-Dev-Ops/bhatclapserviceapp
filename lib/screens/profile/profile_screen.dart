@@ -16,6 +16,7 @@ import 'package:partner_app/screens/profile/performance_screen.dart';
 import 'package:partner_app/screens/finance/insurance_screen.dart';
 import 'package:partner_app/screens/shop/shop_screen.dart';
 import 'package:partner_app/screens/profile/subscription_screen.dart';
+import 'package:partner_app/screens/profile/referral_screen.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
@@ -466,8 +467,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                 icon: Icons.people_outline,
                 title: 'Invite a friend',
                 onTap: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Invite program coming soon!')),
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const ReferralScreen(),
+                    ),
                   );
                 },
               ),

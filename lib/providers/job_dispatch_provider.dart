@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 import 'package:dio/dio.dart';
 import '../services/api_client.dart';
+import '../services/notification_service.dart';
 import 'api_providers.dart';
 import 'auth_provider.dart';
 import 'provider_profile_provider.dart';
@@ -251,6 +253,16 @@ class JobDispatchNotifier extends StateNotifier<DispatchState> {
       print('=== Booking Assigned Received: $data ===');
       final jobRequest = JobRequestModel.fromJson(data);
       state = state.copyWith(activeJob: jobRequest);
+      try {
+        final bId = jobRequest.bookingId.isNotEmpty ? jobRequest.bookingId : jobRequest.requestId;
+        int notifId = bId.hashCode.abs() % 100000;
+        NotificationService.showNotification(
+          id: notifId,
+          title: 'New Booking Request',
+          body: 'You have received a new booking request for ${jobRequest.serviceName} of ₹${jobRequest.amount.toStringAsFixed(0)}.',
+          payload: jsonEncode({'booking_id': bId, 'type': 'job_dispatch'}),
+        );
+      } catch (_) {}
     });
 
     _socket!.onDisconnect((_) {

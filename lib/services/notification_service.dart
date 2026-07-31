@@ -1,8 +1,12 @@
+import 'dart:async';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 class NotificationService {
   static final FlutterLocalNotificationsPlugin _notificationsPlugin =
       FlutterLocalNotificationsPlugin();
+
+  static final StreamController<String> selectNotificationStream =
+      StreamController<String>.broadcast();
 
   static Future<void> init() async {
     const AndroidInitializationSettings initializationSettingsAndroid =
@@ -16,9 +20,17 @@ class NotificationService {
     await _notificationsPlugin.initialize(
       initializationSettings,
       onDidReceiveNotificationResponse: (NotificationResponse response) {
-        // Handle payload tap
+        if (response.payload != null && response.payload!.isNotEmpty) {
+          selectNotificationStream.add(response.payload!);
+        }
       },
     );
+
+    final details = await _notificationsPlugin.getNotificationAppLaunchDetails();
+    if (details?.didNotificationLaunchApp == true &&
+        details?.notificationResponse?.payload != null) {
+      selectNotificationStream.add(details!.notificationResponse!.payload!);
+    }
 
     _notificationsPlugin
         .resolvePlatformSpecificImplementation<

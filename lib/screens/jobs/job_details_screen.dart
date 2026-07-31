@@ -3,24 +3,77 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:partner_app/providers/job_dispatch_provider.dart';
 import 'package:partner_app/providers/jobs_provider.dart';
 
 class JobDetailsScreen extends ConsumerStatefulWidget {
   final dynamic booking;
+  final String? bookingId;
   final bool isNewJob;
-  const JobDetailsScreen({super.key, required this.booking, this.isNewJob = false});
+  const JobDetailsScreen({super.key, this.booking, this.bookingId, this.isNewJob = false});
 
   @override
   ConsumerState<JobDetailsScreen> createState() => _JobDetailsScreenState();
 }
 
 class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
+  dynamic _loadedBooking;
+  // Steps: 0 -> Arrived at Location, 1 -> Enter Start OTP, 2 -> Service in Progress, 3 -> Enter End OTP
+  int _stepIndex = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.booking == null && widget.bookingId != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _loadBookingById();
+      });
+    } else if (!widget.isNewJob && widget.booking != null) {
+      final status = _getVal('status');
+      if (status == 'accepted') {
+        _stepIndex = 0;
+      } else if (status == 'waiting_start_otp') {
+        _stepIndex = 1;
+      } else if (status == 'in_progress') {
+        _stepIndex = 2;
+      } else if (status == 'waiting_end_otp') {
+        _stepIndex = 3;
+      }
+    }
+  }
+
+  void _loadBookingById() {
+    final jobs = ref.read(jobsProvider).bookings;
+    final match = jobs.firstWhere(
+      (j) => (j is Map && (j['_id']?.toString() == widget.bookingId || j['booking_id']?.toString() == widget.bookingId)),
+      orElse: () => null,
+    );
+    if (match != null && mounted) {
+      setState(() {
+        _loadedBooking = match;
+        final status = _getVal('status');
+        if (status == 'accepted') {
+          _stepIndex = 0;
+        } else if (status == 'waiting_start_otp') {
+          _stepIndex = 1;
+        } else if (status == 'in_progress') {
+          _stepIndex = 2;
+        } else if (status == 'waiting_end_otp') {
+          _stepIndex = 3;
+        }
+      });
+    }
+  }
+
   dynamic _getVal(String key) {
-    final b = widget.booking;
-    if (b == null) return null;
+    final b = widget.booking ?? _loadedBooking;
+    if (b == null) {
+      if (key == '_id' || key == 'booking_id' || key == 'requestId' || key == 'request_id') return widget.bookingId;
+      return null;
+    }
     if (b is JobRequestModel) {
-      if (key == 'requestId') return b.requestId;
+      if (key == 'requestId' || key == 'request_id') return b.requestId;
       if (key == '_id') return b.bookingId;
       if (key == 'booking_id') return b.displayId.isNotEmpty ? b.displayId : b.bookingId;
       if (key == 'service_name') return b.serviceName;
@@ -42,27 +95,19 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
       if (key == 'status') return 'pending';
       return null;
     }
-    return b[key];
-  }
-
-  // Steps: 0 -> Arrived at Location, 1 -> Enter Start OTP, 2 -> Service in Progress, 3 -> Enter End OTP
-  int _stepIndex = 0;
-
-  @override
-  void initState() {
-    super.initState();
-    if (!widget.isNewJob && widget.booking != null) {
-      final status = _getVal('status');
-      if (status == 'accepted') {
-        _stepIndex = 0;
-      } else if (status == 'waiting_start_otp') {
-        _stepIndex = 1;
-      } else if (status == 'in_progress') {
-        _stepIndex = 2;
-      } else if (status == 'waiting_end_otp') {
-        _stepIndex = 3;
+    if (b is Map) {
+      if (key == 'requestId' || key == 'request_id') {
+        return b['requestId'] ?? b['request_id'] ?? b['_id'];
       }
+      if (key == '_id') {
+        return b['_id'] ?? b['booking_id'] ?? b['id'];
+      }
+      if (key == 'booking_id') {
+        return b['booking_id'] ?? b['display_id'] ?? b['_id'];
+      }
+      return b[key];
     }
+    return null;
   }
 
   // Start OTP inputs state (6 digits)
@@ -106,14 +151,78 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
     return '';
   }
 
-  void _makePhoneCall() {
+  Future<void> _openGoogleMaps(String fullAddress) async {
+    final cleanAddress = fullAddress.trim();
+    if (cleanAddress.isEmpty) return;
+
+    final addressObj = _getVal('address_id');
+    String query = cleanAddress;
+    if (addressObj is Map && addressObj['latitude'] != null && addressObj['longitude'] != null) {
+      final lat = addressObj['latitude'];
+      final lng = addressObj['longitude'];
+      query = '$lat,$lng';
+    }
+
+    final encodedQuery = Uri.encodeComponent(query);
+    final httpsUrl = Uri.parse('https://www.google.com/maps/search/?api=1&query=$encodedQuery');
+    final geoUrl = Uri.parse('geo:0,0?q=$encodedQuery');
+
+    try {
+      final launched = await launchUrl(httpsUrl, mode: LaunchMode.externalApplication);
+      if (!launched) {
+        await launchUrl(geoUrl, mode: LaunchMode.externalApplication);
+      }
+    } catch (_) {
+      try {
+        await launchUrl(httpsUrl, mode: LaunchMode.platformDefault);
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Please perform a full app restart/rebuild to register map plugin.'),
+              backgroundColor: Color(0xFF16155D),
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  Future<void> _makePhoneCall() async {
     final phone = _getCustomerPhone();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(phone.isNotEmpty ? 'Calling customer: $phone' : 'Customer phone number unavailable'),
-        backgroundColor: const Color(0xFF16155D),
-      ),
-    );
+    if (phone.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Customer phone number unavailable'),
+          backgroundColor: Color(0xFF16155D),
+        ),
+      );
+      return;
+    }
+    final telUrl = Uri.parse('tel:$phone');
+    try {
+      if (await canLaunchUrl(telUrl)) {
+        await launchUrl(telUrl);
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Calling customer: $phone'),
+              backgroundColor: const Color(0xFF16155D),
+            ),
+          );
+        }
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Calling customer: $phone'),
+            backgroundColor: const Color(0xFF16155D),
+          ),
+        );
+      }
+    }
   }
 
   void _openChat() {
@@ -143,9 +252,11 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
         });
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error launching camera: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error launching camera: $e')),
+        );
+      }
     }
   }
 
@@ -260,12 +371,172 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
               'OK',
               style: TextStyle(
                 color: Color(0xFF16155D),
-                fontWeight: FontWeight.bold,
               ),
             ),
           ),
         ],
       ),
+    );
+  }
+
+  bool _isCOD() {
+    final method = (_getVal('payment_method') ?? _getVal('payment_type') ?? _getVal('paymentMethod') ?? '').toString().toLowerCase();
+    final pStatus = (_getVal('payment_status') ?? _getVal('paymentStatus') ?? '').toString().toLowerCase();
+
+    if (method == 'cod' || method == 'cash' || method == 'cash_on_delivery' || method.contains('cod')) {
+      return true;
+    }
+    if (method == 'online' || method == 'razorpay' || method == 'upi' || method == 'card' || pStatus == 'paid' || pStatus == 'completed') {
+      return false;
+    }
+    return pStatus != 'paid' && pStatus != 'completed';
+  }
+
+  Widget _buildPaymentStatusSection() {
+    final isCOD = _isCOD();
+    final amount = _getVal('payable_amount') ?? _getVal('amount') ?? 450;
+
+    return Container(
+      margin: const EdgeInsets.only(top: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: isCOD ? const Color(0xFFFFF3E0) : const Color(0xFFE8F5E9),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isCOD ? const Color(0xFFFFB74D) : const Color(0xFF81C784),
+          width: 1.5,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    isCOD ? Icons.warning_amber_rounded : Icons.verified_user_rounded,
+                    color: isCOD ? const Color(0xFFE65100) : const Color(0xFF2E7D32),
+                    size: 22,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    isCOD ? 'COD - CASH TO COLLECT' : 'ONLINE PAID',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                      color: isCOD ? const Color(0xFFE65100) : const Color(0xFF2E7D32),
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ],
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: isCOD ? const Color(0xFFEF6C00) : const Color(0xFF2E7D32),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  isCOD ? 'COLLECT ₹$amount CASH' : 'NO CASH NEEDED',
+                  style: const TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            isCOD
+                ? '⚠️ REMINDER: Collect ₹$amount in cash from the customer before ending the service.'
+                : '✅ Customer has already paid ₹$amount online. Do NOT collect any cash.',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: isCOD ? const Color(0xFFBF360C) : const Color(0xFF1B5E20),
+              height: 1.4,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showCodCashCollectionDialog(VoidCallback onConfirmed) {
+    if (!_isCOD()) {
+      onConfirmed();
+      return;
+    }
+
+    final amount = _getVal('payable_amount') ?? _getVal('amount') ?? 450;
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: Row(
+            children: const [
+              Icon(Icons.payments_outlined, color: Color(0xFFE65100)),
+              SizedBox(width: 8),
+              Text('Collect Cash (COD)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'This booking is Cash on Delivery (COD).',
+                style: TextStyle(fontSize: 14, color: Colors.black87, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFF3E0),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFFFB74D)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.warning_amber_rounded, color: Color(0xFFE65100), size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Have you collected ₹$amount in cash from the customer?',
+                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFFBF360C)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel', style: TextStyle(color: Colors.grey, fontWeight: FontWeight.w600)),
+            ),
+            ElevatedButton.icon(
+              onPressed: () {
+                Navigator.pop(context);
+                onConfirmed();
+              },
+              icon: const Icon(Icons.check_circle_outline, color: Colors.white, size: 18),
+              label: Text('Yes, Collected ₹$amount', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF2E7D32),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -468,22 +739,82 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          _buildCircularIcon(Icons.location_on_outlined),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Text(
-                              '$addressLine, $city',
-                              style: const TextStyle(
-                                  fontSize: 13,
-                                  color: Color(0xFF1C1F3E),
-                                  fontWeight: FontWeight.w500,
-                                  height: 1.4),
-                            ),
+                      InkWell(
+                        onTap: () => _openGoogleMaps('$addressLine, $city'),
+                        borderRadius: BorderRadius.circular(12),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 4.0),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              Container(
+                                width: 44,
+                                height: 44,
+                                decoration: BoxDecoration(
+                                  gradient: const LinearGradient(
+                                    colors: [Color(0xFF16155D), Color(0xFF28277D)],
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                  ),
+                                  borderRadius: BorderRadius.circular(12),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: const Color(0xFF16155D).withValues(alpha: 0.2),
+                                      blurRadius: 6,
+                                      offset: const Offset(0, 3),
+                                    ),
+                                  ],
+                                ),
+                                child: const Icon(
+                                  Icons.near_me_rounded,
+                                  color: Colors.white,
+                                  size: 22,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      '$addressLine, $city',
+                                      style: const TextStyle(
+                                        fontSize: 13,
+                                        color: Color(0xFF1C1F3E),
+                                        fontWeight: FontWeight.w600,
+                                        height: 1.4,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 3),
+                                    Row(
+                                      children: const [
+                                        Icon(
+                                          Icons.directions_outlined,
+                                          size: 13,
+                                          color: Color(0xFF4285F4),
+                                        ),
+                                        SizedBox(width: 4),
+                                        Text(
+                                          'Tap to navigate in Google Maps',
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            color: Color(0xFF4285F4),
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const Icon(
+                                Icons.chevron_right_rounded,
+                                color: Color(0xFF4285F4),
+                                size: 20,
+                              ),
+                            ],
                           ),
-                        ],
+                        ),
                       ),
                       const SizedBox(height: 16),
                       Row(
@@ -679,6 +1010,7 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
                     ],
                   ),
                 ),
+                _buildPaymentStatusSection(),
               ],
             ),
           ),
@@ -694,17 +1026,28 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
                 child: widget.isNewJob
                     ? ElevatedButton(
                         onPressed: () async {
+                          final reqId = (_getVal('requestId') ?? _getVal('request_id') ?? _getVal('_id'))?.toString() ?? '';
                           final success = await ref
                               .read(jobsProvider.notifier)
-                              .acceptJob(_getVal('requestId'));
-                          if (success && mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Job accepted successfully!'),
-                                backgroundColor: Color(0xFF2E7D32),
-                              ),
-                            );
-                            Navigator.pop(context);
+                              .acceptJob(reqId);
+                          if (mounted) {
+                            if (success) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Job accepted successfully!'),
+                                  backgroundColor: Color(0xFF2E7D32),
+                                ),
+                              );
+                              Navigator.pop(context);
+                            } else {
+                              final err = ref.read(jobsProvider).errorMessage ?? 'Failed to accept job';
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(err),
+                                  backgroundColor: Colors.red,
+                                ),
+                              );
+                            }
                           }
                         },
                         style: ElevatedButton.styleFrom(
@@ -1191,6 +1534,7 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
                     );
                   },
                 ),
+                _buildPaymentStatusSection(),
                 const SizedBox(height: 24),
               ],
             ),
@@ -1206,18 +1550,20 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
                 height: 54,
                 child: ElevatedButton.icon(
                   onPressed: (_afterPhotos.isNotEmpty || _afterPhotosUploaded)
-                      ? () async {
-                          final afterPhotosToSend = _afterPhotos.isNotEmpty
-                              ? _afterPhotos
-                              : ['data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='];
-                          final success = await ref
-                              .read(jobsProvider.notifier)
-                              .finishService(_getVal('_id'), afterPhotosToSend);
-                          if (success && mounted) {
-                            setState(() {
-                              _stepIndex = 3; // Move to entering End OTP
-                            });
-                          }
+                      ? () {
+                          _showCodCashCollectionDialog(() async {
+                            final afterPhotosToSend = _afterPhotos.isNotEmpty
+                                ? _afterPhotos
+                                : ['data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='];
+                            final success = await ref
+                                .read(jobsProvider.notifier)
+                                .finishService(_getVal('_id'), afterPhotosToSend);
+                            if (success && mounted) {
+                              setState(() {
+                                _stepIndex = 3; // Move to entering End OTP
+                              });
+                            }
+                          });
                         }
                       : null,
                   icon: Icon(

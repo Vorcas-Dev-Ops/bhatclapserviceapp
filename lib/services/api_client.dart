@@ -1,8 +1,6 @@
-import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'token_storage.dart';
-import 'server_error_handler.dart';
 
 class ApiClient {
   late final Dio dio;
@@ -20,8 +18,8 @@ class ApiClient {
     dio = Dio(
       BaseOptions(
         baseUrl: baseUrl,
-        connectTimeout: const Duration(seconds: 15),
-        receiveTimeout: const Duration(seconds: 15),
+        connectTimeout: const Duration(seconds: 30),
+        receiveTimeout: const Duration(seconds: 30),
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
@@ -57,23 +55,6 @@ class ApiClient {
           return handler.next(response);
         },
         onError: (DioException e, handler) async {
-          // Check for 503 Service Unavailable or server communication errors
-          final statusCode = e.response?.statusCode;
-          final isServerError = statusCode == 503 || statusCode == 502 || statusCode == 504;
-          final isConnectionError = e.type == DioExceptionType.connectionError ||
-              e.type == DioExceptionType.connectionTimeout ||
-              e.type == DioExceptionType.sendTimeout ||
-              e.type == DioExceptionType.receiveTimeout ||
-              e.error is SocketException;
-
-          if (isServerError || isConnectionError) {
-            ServerErrorHandler.handle503Error(
-              message: isServerError
-                  ? 'Server is currently unavailable ($statusCode). Please try again later.'
-                  : 'Unable to communicate with the server. Please check your network or try again later.',
-            );
-          }
-
           // If we receive a 401 Unauthorized, try to refresh the token
           if (e.response?.statusCode == 401 && 
               e.requestOptions.path != '/api/users/refresh' && 

@@ -17,6 +17,9 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
   int _selectedPlanIndex = 0;
   String _selectedFilter = 'all'; // 'all', '30', '60', '90'
   bool _isLoadingPackages = true;
+  int _leadBalance = 0;
+  bool _hasPriorityDispatch = false;
+  List<Map<String, dynamic>> _activePackages = [];
   List<Map<String, dynamic>> _dbPackages = [];
   late Razorpay _razorpay;
   Completer<Map<String, dynamic>?>? _razorpayCompleter;
@@ -143,7 +146,35 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(providerProfileProvider.notifier).fetchProfile();
       _fetchLeadPackagesFromDatabase();
+      _fetchLeadBalance();
     });
+  }
+
+  Future<void> _fetchLeadBalance() async {
+    try {
+      final apiClient = ref.read(apiClientProvider);
+      final response = await apiClient.dio.get('/api/providers/lead-balance');
+
+      if (response.statusCode == 200 && response.data != null) {
+        final data = response.data;
+        final int balance = (data['leadBalance'] as num?)?.toInt() ?? 0;
+        final bool hasPriority = data['hasPriorityDispatch'] == true;
+        final List rawActive = data['activePackages'] ?? [];
+        final List<Map<String, dynamic>> parsedActive =
+            rawActive.map<Map<String, dynamic>>((e) => Map<String, dynamic>.from(e)).toList();
+
+        if (mounted) {
+          setState(() {
+            _leadBalance = balance;
+            _hasPriorityDispatch = hasPriority;
+            _activePackages = parsedActive;
+          });
+        }
+        return;
+      }
+    } catch (e) {
+      print('Fetch lead-balance error: $e');
+    }
   }
 
   @override
@@ -257,6 +288,36 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
         );
 
         if (orderRes.data != null && orderRes.data['success'] == true) {
+          // Handle Free Access or ₹0 package activation directly
+          if (orderRes.data['freeAccess'] == true) {
+            await _fetchLeadBalance();
+            await ref.read(providerProfileProvider.notifier).fetchProfile();
+            if (mounted) {
+              showDialog(
+                context: context,
+                builder: (context) => AlertDialog(
+                  title: Row(
+                    children: const [
+                      Icon(Icons.stars, color: Color(0xFF10B981), size: 28),
+                      SizedBox(width: 10),
+                      Text('Package Activated!'),
+                    ],
+                  ),
+                  content: Text(
+                    'Congratulations! ${plan['name']} (${plan['totalLeadsText']}) has been activated via Free Access.',
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Great!', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1E1B4B))),
+                    ),
+                  ],
+                ),
+              );
+            }
+            return;
+          }
+
           final rzpOrder = orderRes.data['razorpayOrder'];
           if (rzpOrder != null && rzpOrder['id'] != null) {
             razorpayOrderId = rzpOrder['id'];
@@ -332,7 +393,8 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
       }
 
       // 3. Refresh Provider Profile & Lead Balance in state
-      ref.read(providerProfileProvider.notifier).fetchProfile();
+      await _fetchLeadBalance();
+      await ref.read(providerProfileProvider.notifier).fetchProfile();
 
       if (mounted) {
         showDialog(
@@ -402,7 +464,131 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
           children: [
             _buildActiveSubscriptionBanner(subType, subStatus, isFreeAccess, profile),
 
-            const SizedBox(height: 20),
+            const SizedBox(height: 16),
+
+            if (_activePackages.isNotEmpty) ...[
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Your Active Packages',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF1C1F3E),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    ..._activePackages.map((pkg) {
+                      final name = pkg['packageName'] ?? 'Active Package';
+                      final remaining = pkg['leadsRemaining'] ?? 0;
+                      final total = pkg['totalLeadsGranted'] ?? remaining;
+                      final hasPriority = pkg['hasPriorityDispatch'] == true;
+                      final expiresAt = pkg['expiresAt'] != null
+                          ? DateTime.tryParse(pkg['expiresAt'].toString())
+                          : null;
+                      final expiryString = expiresAt != null
+                          ? 'Valid until ${expiresAt.day}/${expiresAt.month}/${expiresAt.year}'
+                          : 'No Expiry Date';
+
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: const Color(0xFF10B981), width: 1.5),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.03),
+                              blurRadius: 8,
+                              offset: const Offset(0, 3),
+                            ),
+                          ],
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: Colors.green.shade50,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Icon(
+                                hasPriority ? Icons.bolt : Icons.stars,
+                                color: Colors.green.shade700,
+                                size: 24,
+                              ),
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Text(
+                                        name,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 14,
+                                          color: Color(0xFF1C1F3E),
+                                        ),
+                                      ),
+                                      if (hasPriority) ...[
+                                        const SizedBox(width: 8),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                          decoration: BoxDecoration(
+                                            color: Colors.amber.shade100,
+                                            borderRadius: BorderRadius.circular(6),
+                                          ),
+                                          child: Text(
+                                            'PRIORITY',
+                                            style: TextStyle(
+                                              fontSize: 9,
+                                              fontWeight: FontWeight.bold,
+                                              color: Colors.amber.shade900,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    expiryString,
+                                    style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF1E1B4B),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Text(
+                                '$remaining / $total Leads',
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
 
             // Validity Filter Chips (All Packages, 30 Days, 60 Days, 90 Days)
             Padding(
@@ -598,17 +784,53 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
     String statusSub = 'Active lead wallet model balance';
     Color bannerBg = const Color(0xFF1E1B4B);
     IconData bannerIcon = Icons.account_balance_wallet_outlined;
+    Widget? priorityBadge;
 
     if (isFreeAccess || subType == 'free_trial') {
       statusTitle = 'FREE TRIAL ACTIVE';
       statusSub = 'Zero lead fee deduction on all accepted orders!';
       bannerBg = const Color(0xFF065F46);
       bannerIcon = Icons.stars_outlined;
+    } else if (_leadBalance > 0 || _activePackages.isNotEmpty) {
+      final activePkg = _activePackages.isNotEmpty ? _activePackages.first : null;
+      final pkgName = activePkg?['packageName'] ?? 'LEAD PACKAGE';
+
+      statusTitle = '$pkgName ACTIVE ($_leadBalance LEADS)';
+      if (_hasPriorityDispatch) {
+        statusSub = 'Priority Dispatch Queue Enabled • Boosted lead ranking';
+        bannerBg = const Color(0xFF065F46);
+        bannerIcon = Icons.bolt;
+        priorityBadge = Container(
+          margin: const EdgeInsets.only(top: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          decoration: BoxDecoration(
+            color: Colors.amber.shade400,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: const Text(
+            '⚡ PRIORITY DISPATCH',
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF1E1B4B),
+            ),
+          ),
+        );
+      } else {
+        statusSub = 'Standard Queue Access • $_leadBalance lead credits remaining';
+        bannerBg = const Color(0xFF1E1B4B);
+        bannerIcon = Icons.verified;
+      }
     } else if (subStatus == 'grace_period') {
       statusTitle = 'PACKAGE IN GRACE PERIOD';
-      statusSub = 'Recharge lead wallet to maintain priority dispatches.';
+      statusSub = 'Recharge lead package to maintain priority dispatches.';
       bannerBg = Colors.amber.shade900;
       bannerIcon = Icons.warning_amber_rounded;
+    } else {
+      statusTitle = 'NO ACTIVE LEADS (0 LEADS)';
+      statusSub = 'Select and purchase a lead package below to take customer jobs.';
+      bannerBg = const Color(0xFF334155);
+      bannerIcon = Icons.account_balance_wallet_outlined;
     }
 
     return Padding(
@@ -658,6 +880,7 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
                       fontSize: 12,
                     ),
                   ),
+                  if (priorityBadge != null) priorityBadge!,
                 ],
               ),
             ),

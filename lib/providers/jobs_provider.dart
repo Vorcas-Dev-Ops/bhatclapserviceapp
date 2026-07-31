@@ -96,14 +96,27 @@ class JobsNotifier extends StateNotifier<JobsState> {
 
   // Accept a job request
   Future<bool> acceptJob(String requestId) async {
+    if (requestId.isEmpty) {
+      state = state.copyWith(errorMessage: 'Invalid or missing job request ID');
+      return false;
+    }
     try {
       final response = await _apiClient.dio.post('/api/providers/job-requests/$requestId/accept');
       if (response.statusCode == 200) {
+        state = state.copyWith(errorMessage: null);
         await fetchAllJobs();
         return true;
       }
+      state = state.copyWith(errorMessage: 'Failed to accept job (Status: ${response.statusCode})');
       return false;
-    } catch (_) {
+    } on DioException catch (e) {
+      final msg = e.response?.data is Map
+          ? (e.response?.data['message']?.toString() ?? e.response?.data['error']?.toString())
+          : null;
+      state = state.copyWith(errorMessage: msg ?? 'Failed to accept job');
+      return false;
+    } catch (e) {
+      state = state.copyWith(errorMessage: 'Failed to accept job: $e');
       return false;
     }
   }

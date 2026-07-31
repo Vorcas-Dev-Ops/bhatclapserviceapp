@@ -1,6 +1,8 @@
+import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
 import '../services/api_client.dart';
+import '../services/notification_service.dart';
 import 'api_providers.dart';
 import 'auth_provider.dart';
 
@@ -37,6 +39,7 @@ class NotificationState {
 class NotificationNotifier extends StateNotifier<NotificationState> {
   final ApiClient _apiClient;
   final Ref _ref;
+  final Set<String> _shownNotificationIds = <String>{};
 
   NotificationNotifier({required ApiClient apiClient, required Ref ref})
       : _apiClient = apiClient,
@@ -44,11 +47,40 @@ class NotificationNotifier extends StateNotifier<NotificationState> {
         super(NotificationState.initial());
 
   Future<void> fetchNotifications() async {
-    state = state.copyWith(status: NotificationStatus.loading);
     try {
       final response = await _apiClient.dio.get('/api/notifications');
       if (response.statusCode == 200) {
         final data = response.data['data'] ?? [];
+
+        // Check for new unread notifications and pop OS push banners
+        for (var item in data) {
+          final id = item['_id']?.toString() ?? item['id']?.toString() ?? '';
+          final isRead = item['is_read'] == true;
+          final title = item['title'] ?? 'Notification';
+          final message = item['message'] ?? item['body'] ?? '';
+          final type = (item['type'] ?? '').toString().toLowerCase();
+
+          if (!isRead && id.isNotEmpty && !_shownNotificationIds.contains(id) && !type.contains('otp')) {
+            _shownNotificationIds.add(id);
+            int notifId = id.hashCode.abs() % 100000;
+            Map<String, dynamic> payloadMap = {};
+            if (item['metadata'] != null && item['metadata'] is Map) {
+              payloadMap = Map<String, dynamic>.from(item['metadata']);
+            }
+            if (!payloadMap.containsKey('booking_id') && item['booking_id'] != null) {
+              payloadMap['booking_id'] = item['booking_id'];
+            }
+            payloadMap['type'] = type;
+
+            NotificationService.showNotification(
+              id: notifId,
+              title: title,
+              body: message,
+              payload: jsonEncode(payloadMap),
+            );
+          }
+        }
+
         state = NotificationState(
           status: NotificationStatus.loaded,
           notifications: data,

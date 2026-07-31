@@ -4,6 +4,8 @@ import 'package:partner_app/providers/jobs_provider.dart';
 import 'package:partner_app/providers/provider_profile_provider.dart';
 import 'package:partner_app/screens/finance/add_credits_screen.dart';
 import 'package:partner_app/screens/jobs/job_details_screen.dart';
+import 'package:partner_app/screens/notifications/notifications_screen.dart';
+import 'package:partner_app/providers/notification_provider.dart';
 
 class JobsScreen extends ConsumerStatefulWidget {
   const JobsScreen({super.key});
@@ -21,6 +23,7 @@ class _JobsScreenState extends ConsumerState<JobsScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(jobsProvider.notifier).fetchAllJobs();
+      ref.read(notificationProvider.notifier).fetchNotifications();
     });
   }
 
@@ -36,6 +39,8 @@ class _JobsScreenState extends ConsumerState<JobsScreen> {
   Widget _buildTopBar() {
     final profileState = ref.watch(providerProfileProvider);
     final profile = profileState.profileData;
+    final notificationState = ref.watch(notificationProvider);
+    final unreadCount = notificationState.unreadCount;
     
     String creditsText = '...';
     if (profile != null) {
@@ -111,48 +116,44 @@ class _JobsScreenState extends ConsumerState<JobsScreen> {
               ),
               const SizedBox(width: 12),
               // Notification Bell with Badge
-              Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  Container(
-                    width: 40,
-                    height: 40,
-                    decoration: const BoxDecoration(
-                      color: Color(0xFFEFF1FE),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.notifications_none_outlined,
-                      color: Color(0xFF16155D),
-                      size: 22,
-                    ),
-                  ),
-                  Positioned(
-                    top: -2,
-                    right: -2,
-                    child: Container(
-                      padding: const EdgeInsets.all(4),
+              GestureDetector(
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const PartnerNotificationsScreen()),
+                  );
+                },
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Container(
+                      width: 40,
+                      height: 40,
                       decoration: const BoxDecoration(
-                        color: Color(0xFF16155D),
+                        color: Color(0xFFEFF1FE),
                         shape: BoxShape.circle,
                       ),
-                      constraints: const BoxConstraints(
-                        minWidth: 16,
-                        minHeight: 16,
+                      child: const Icon(
+                        Icons.notifications_none_outlined,
+                        color: Color(0xFF16155D),
+                        size: 22,
                       ),
-                      child: const Center(
-                        child: Text(
-                          '4',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 9,
-                            fontWeight: FontWeight.bold,
+                    ),
+                    if (unreadCount > 0)
+                      Positioned(
+                        top: 2,
+                        right: 2,
+                        child: Container(
+                          width: 10,
+                          height: 10,
+                          decoration: const BoxDecoration(
+                            color: Colors.red,
+                            shape: BoxShape.circle,
                           ),
                         ),
                       ),
-                    ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ],
           ),
@@ -405,7 +406,7 @@ class _JobsScreenState extends ConsumerState<JobsScreen> {
                 ],
               ),
             ),
-            if (footerSection != null) footerSection,
+            ?footerSection,
           ],
         ),
       ),
@@ -444,10 +445,17 @@ class _JobsScreenState extends ConsumerState<JobsScreen> {
                   child: ElevatedButton(
                     onPressed: () async {
                       final success = await ref.read(jobsProvider.notifier).acceptJob(job.requestId);
-                      if (success && mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Job request accepted successfully!'), backgroundColor: Colors.green),
-                        );
+                      if (mounted) {
+                        if (success) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Job request accepted successfully!'), backgroundColor: Colors.green),
+                          );
+                        } else {
+                          final err = ref.read(jobsProvider).errorMessage ?? 'Failed to accept job';
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text(err), backgroundColor: Colors.red),
+                          );
+                        }
                       }
                     },
                     style: ElevatedButton.styleFrom(

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:partner_app/providers/job_dispatch_provider.dart';
@@ -15,6 +16,9 @@ import 'package:partner_app/screens/finance/money_screen.dart';
 import 'package:partner_app/screens/finance/add_credits_screen.dart';
 import 'package:partner_app/screens/profile/profile_screen.dart';
 import 'package:partner_app/screens/shop/starter_kit_screen.dart';
+import 'package:partner_app/screens/profile/referral_screen.dart';
+import 'package:partner_app/services/notification_service.dart';
+import 'package:partner_app/services/partner_notification_sync_service.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -25,17 +29,58 @@ class HomeScreen extends ConsumerStatefulWidget {
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   int _currentIndex = 0;
+  StreamSubscription<String>? _notificationSub;
 
   @override
   void initState() {
     super.initState();
+    _notificationSub = NotificationService.selectNotificationStream.stream.listen((payload) {
+      _handleNotificationClick(payload);
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(providerProfileProvider.notifier).fetchProfile();
       ref.read(walletProvider.notifier).fetchWalletAndReviews();
       ref.read(jobsProvider.notifier).fetchAllJobs();
       ref.read(providerAnalyticsProvider.notifier).fetchAnalytics();
-      ref.read(notificationProvider.notifier).fetchNotifications();
+      PartnerNotificationSyncService.startSync(ref);
     });
+  }
+
+  @override
+  void dispose() {
+    _notificationSub?.cancel();
+    PartnerNotificationSyncService.stopSync();
+    super.dispose();
+  }
+
+  void _handleNotificationClick(String payload) {
+    try {
+      Map<String, dynamic> data = {};
+      if (payload.startsWith('{')) {
+        data = jsonDecode(payload);
+      }
+      final bookingId = data['booking_id'] ?? data['bookingId'] ?? data['booking'] ?? data['request_id'];
+      if (bookingId != null && bookingId.toString().isNotEmpty && mounted) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => JobDetailsScreen(bookingId: bookingId.toString()),
+          ),
+        );
+      } else if (mounted) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (context) => const PartnerNotificationsScreen()),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (context) => const PartnerNotificationsScreen()),
+        );
+      }
+    }
   }
 
   void _navigateToDetails(dynamic booking, {bool isNewJob = false}) {
@@ -143,21 +188,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     ),
                     if (ref.watch(notificationProvider).unreadCount > 0)
                       Positioned(
-                        right: -2,
-                        top: -2,
+                        top: 2,
+                        right: 2,
                         child: Container(
-                          padding: const EdgeInsets.all(4),
+                          width: 10,
+                          height: 10,
                           decoration: const BoxDecoration(
                             color: Colors.red,
                             shape: BoxShape.circle,
-                          ),
-                          child: Text(
-                            '${ref.watch(notificationProvider).unreadCount}',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
-                            ),
                           ),
                         ),
                       ),
@@ -778,51 +816,61 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         itemCount: banners.length,
         itemBuilder: (context, index) {
           final banner = banners[index];
-          return Container(
-            width: 300,
-            margin: EdgeInsets.only(right: index == banners.length - 1 ? 0 : 16),
-            padding: const EdgeInsets.all(18),
-            decoration: BoxDecoration(
-              color: banner['color'],
-              gradient: banner['gradient'],
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  banner['title'],
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Colors.white60, // Light white/blueish
-                    fontWeight: FontWeight.w500,
+          return GestureDetector(
+            onTap: () {
+              if (banner['title'] == 'Referral Program') {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const ReferralScreen()),
+                );
+              }
+            },
+            child: Container(
+              width: 300,
+              margin: EdgeInsets.only(right: index == banners.length - 1 ? 0 : 16),
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(
+                color: banner['color'],
+                gradient: banner['gradient'],
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    banner['title'],
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Colors.white60, // Light white/blueish
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
-                ),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      banner['header'],
-                      style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        banner['header'],
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      banner['subtitle'],
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: Colors.white70,
+                      const SizedBox(height: 6),
+                      Text(
+                        banner['subtitle'],
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Colors.white70,
+                        ),
                       ),
-                    ),
-                  ],
-                ),
-              ],
+                    ],
+                  ),
+                ],
+              ),
             ),
           );
         },
