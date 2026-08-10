@@ -7,6 +7,10 @@ import 'package:partner_app/screens/jobs/job_details_screen.dart';
 import 'package:partner_app/screens/notifications/notifications_screen.dart';
 import 'package:partner_app/providers/notification_provider.dart';
 
+import 'package:partner_app/providers/wallet_provider.dart';
+import 'package:partner_app/screens/profile/subscription_screen.dart';
+import 'package:partner_app/utils/address_utils.dart';
+
 class JobsScreen extends ConsumerStatefulWidget {
   const JobsScreen({super.key});
 
@@ -24,6 +28,7 @@ class _JobsScreenState extends ConsumerState<JobsScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(jobsProvider.notifier).fetchAllJobs();
       ref.read(notificationProvider.notifier).fetchNotifications();
+      ref.read(walletProvider.notifier).fetchWalletAndReviews();
     });
   }
 
@@ -36,11 +41,51 @@ class _JobsScreenState extends ConsumerState<JobsScreen> {
     );
   }
 
+  Widget _buildRedLeadCountBadge(BuildContext context, int leadCount) {
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (context) => const SubscriptionScreen()),
+        );
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFFF0F0),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: const Color(0xFFFF3B30), width: 1.5),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.flash_on,
+              color: Color(0xFFE53935),
+              size: 16,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              '$leadCount Leads',
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFFE53935),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildTopBar() {
     final profileState = ref.watch(providerProfileProvider);
     final profile = profileState.profileData;
     final notificationState = ref.watch(notificationProvider);
     final unreadCount = notificationState.unreadCount;
+    final walletState = ref.watch(walletProvider);
+    final leadCount = walletState.leadBalance;
     
     String creditsText = '...';
     if (profile != null) {
@@ -57,16 +102,33 @@ class _JobsScreenState extends ConsumerState<JobsScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          const Text(
-            'Jobs',
-            style: TextStyle(
-              fontSize: 26,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF1C1F3E),
-            ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: const [
+              Text(
+                'BharatClap',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                  color: Color(0xFF16155D),
+                  letterSpacing: -0.5,
+                ),
+              ),
+              SizedBox(height: 2),
+              Text(
+                'Jobs',
+                style: TextStyle(
+                  fontSize: 26,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF1C1F3E),
+                ),
+              ),
+            ],
           ),
           Row(
             children: [
+              _buildRedLeadCountBadge(context, leadCount),
+              const SizedBox(width: 8),
               // Credits Pill
               GestureDetector(
                 onTap: () {
@@ -432,7 +494,7 @@ class _JobsScreenState extends ConsumerState<JobsScreen> {
         return _buildJobCard(
           title: job.serviceName,
           earnings: '₹${job.amount}',
-          location: '${job.address}, ${job.city}',
+          location: formatAddress(job.address, city: job.city),
           date: job.scheduledAt,
           time: job.bookingTime,
           duration: '60 Mins',
@@ -545,7 +607,7 @@ class _JobsScreenState extends ConsumerState<JobsScreen> {
           return _buildJobCard(
             title: serviceName,
             earnings: '₹${booking['payable_amount']}',
-            location: '$addressLine, $city',
+            location: formatAddress(addressLine, city: city),
             date: booking['scheduled_at'] ?? 'Today',
             time: booking['booking_time'] ?? 'Now',
             duration: '60 Mins',
@@ -613,7 +675,7 @@ class _JobsScreenState extends ConsumerState<JobsScreen> {
         return _buildJobCard(
           title: serviceName,
           earnings: '₹${booking['payable_amount']}',
-          location: '$addressLine, $city',
+          location: formatAddress(addressLine, city: city),
           date: booking['scheduled_at'] ?? 'Today',
           time: booking['booking_time'] ?? 'Now',
           duration: '60 Mins',

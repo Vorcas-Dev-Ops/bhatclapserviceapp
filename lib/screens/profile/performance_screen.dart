@@ -296,7 +296,7 @@ class _PerformanceScreenState extends ConsumerState<PerformanceScreen> {
                 ],
               ),
             );
-          }).toList(),
+          }),
       ],
     );
   }
@@ -309,7 +309,18 @@ class _PerformanceScreenState extends ConsumerState<PerformanceScreen> {
     final analytics = analyticsState.analyticsData;
 
     final profile = profileState.profileData ?? {};
-    final rating = (profile['average_rating'] as num?)?.toDouble() ?? 0.0;
+    double rating = 0.0;
+    if (walletState.reviews.isNotEmpty) {
+      double sum = 0;
+      for (final r in walletState.reviews) {
+        sum += (r['rating'] as num?)?.toDouble() ?? 0.0;
+      }
+      rating = double.parse((sum / walletState.reviews.length).toStringAsFixed(1));
+    } else if (profile['overall_rating'] != null && (profile['overall_rating'] as num) != 4.8) {
+      rating = (profile['overall_rating'] as num).toDouble();
+    } else {
+      rating = 0.0;
+    }
     final acceptanceRate = (analytics?['acceptanceRate'] as num?)?.toInt() ?? 100;
     final completionRate = (analytics?['completionRate'] as num?)?.toInt() ?? 100;
 

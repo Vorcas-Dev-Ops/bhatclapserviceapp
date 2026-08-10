@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:partner_app/providers/job_dispatch_provider.dart';
 import 'package:partner_app/providers/jobs_provider.dart';
+import 'package:partner_app/utils/address_utils.dart';
 
 class JobDetailsScreen extends ConsumerStatefulWidget {
   final dynamic booking;
@@ -19,8 +20,13 @@ class JobDetailsScreen extends ConsumerStatefulWidget {
 
 class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
   dynamic _loadedBooking;
-  // Steps: 0 -> Arrived at Location, 1 -> Enter Start OTP, 2 -> Service in Progress, 3 -> Enter End OTP
+  // Screen steps: 0 -> Main Job Details, 1 -> Enter Start OTP, 2 -> Service in Progress, 3 -> Enter End OTP
   int _stepIndex = 0;
+  // Sub-steps for accepted job on Main Job Details screen (Step 0):
+  // 0 -> Leaving for Service
+  // 1 -> Arrived at Location
+  // 2 -> Start Service
+  int _acceptedSubStep = 0;
 
   @override
   void initState() {
@@ -30,16 +36,27 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
         _loadBookingById();
       });
     } else if (!widget.isNewJob && widget.booking != null) {
-      final status = _getVal('status');
-      if (status == 'accepted') {
-        _stepIndex = 0;
-      } else if (status == 'waiting_start_otp') {
-        _stepIndex = 1;
-      } else if (status == 'in_progress') {
-        _stepIndex = 2;
-      } else if (status == 'waiting_end_otp') {
-        _stepIndex = 3;
-      }
+      _syncStatusStep();
+    }
+  }
+
+  void _syncStatusStep() {
+    final status = _getVal('status');
+    if (status == 'accepted' || status == 'assigned' || status == 'confirmed') {
+      _stepIndex = 0;
+      _acceptedSubStep = 0;
+    } else if (status == 'on_the_way') {
+      _stepIndex = 0;
+      _acceptedSubStep = 1;
+    } else if (status == 'arrived' || status == 'reached') {
+      _stepIndex = 0;
+      _acceptedSubStep = 2;
+    } else if (status == 'waiting_start_otp') {
+      _stepIndex = 1;
+    } else if (status == 'in_progress') {
+      _stepIndex = 2;
+    } else if (status == 'waiting_end_otp') {
+      _stepIndex = 3;
     }
   }
 
@@ -52,16 +69,7 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
     if (match != null && mounted) {
       setState(() {
         _loadedBooking = match;
-        final status = _getVal('status');
-        if (status == 'accepted') {
-          _stepIndex = 0;
-        } else if (status == 'waiting_start_otp') {
-          _stepIndex = 1;
-        } else if (status == 'in_progress') {
-          _stepIndex = 2;
-        } else if (status == 'waiting_end_otp') {
-          _stepIndex = 3;
-        }
+        _syncStatusStep();
       });
     }
   }
@@ -199,10 +207,10 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
       );
       return;
     }
-    final telUrl = Uri.parse('tel:$phone');
+    final telUrl = Uri(scheme: 'tel', path: phone.trim());
     try {
       if (await canLaunchUrl(telUrl)) {
-        await launchUrl(telUrl);
+        await launchUrl(telUrl, mode: LaunchMode.externalApplication);
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -671,66 +679,32 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
                         ],
                       ),
                       const SizedBox(height: 20),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: SizedBox(
-                              height: 48,
-                              child: ElevatedButton.icon(
-                                onPressed: () {},
-                                icon: const Icon(
-                                  Icons.chat_bubble_outline,
-                                  color: Color(0xFF0F9D58),
-                                  size: 18,
-                                ),
-                                label: const Text(
-                                  'Chat',
-                                  style: TextStyle(
-                                    color: Color(0xFF0F9D58),
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 14,
-                                  ),
-                                ),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFFF5F6FA),
-                                  elevation: 0,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                ),
-                              ),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 48,
+                        child: ElevatedButton.icon(
+                          onPressed: _makePhoneCall,
+                          icon: const Icon(
+                            Icons.phone_outlined,
+                            color: Color(0xFF16155D),
+                            size: 18,
+                          ),
+                          label: const Text(
+                            'Call',
+                            style: TextStyle(
+                              color: Color(0xFF16155D),
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
                             ),
                           ),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: SizedBox(
-                              height: 48,
-                              child: ElevatedButton.icon(
-                                onPressed: () {},
-                                icon: const Icon(
-                                  Icons.phone_outlined,
-                                  color: Color(0xFF16155D),
-                                  size: 18,
-                                ),
-                                label: const Text(
-                                  'Call',
-                                  style: TextStyle(
-                                    color: Color(0xFF16155D),
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 14,
-                                  ),
-                                ),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFFEFF1FE),
-                                  elevation: 0,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                ),
-                              ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFFEFF1FE),
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
                             ),
                           ),
-                        ],
+                        ),
                       ),
                     ],
                   ),
@@ -740,7 +714,19 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       InkWell(
-                        onTap: () => _openGoogleMaps('$addressLine, $city'),
+                        onTap: () {
+                          if (_acceptedSubStep == 0 && !widget.isNewJob) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Please tap "Leaving for Service" to start navigation.'),
+                                backgroundColor: Color(0xFF16155D),
+                                duration: Duration(seconds: 2),
+                              ),
+                            );
+                            return;
+                          }
+                          _openGoogleMaps('$addressLine, $city');
+                        },
                         borderRadius: BorderRadius.circular(12),
                         child: Padding(
                           padding: const EdgeInsets.symmetric(vertical: 4.0),
@@ -777,7 +763,7 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
-                                      '$addressLine, $city',
+                                      formatAddress(addressLine, city: city),
                                       style: const TextStyle(
                                         fontSize: 13,
                                         color: Color(0xFF1C1F3E),
@@ -1066,41 +1052,118 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
                           ),
                         ),
                       )
-                    : ElevatedButton.icon(
-                        onPressed: () async {
-                          final beforePhotosToSend = _beforePhotos.isNotEmpty
-                              ? _beforePhotos
-                              : ['data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='];
-                          final success = await ref
-                              .read(jobsProvider.notifier)
-                              .startService(_getVal('_id'), beforePhotosToSend);
-                          if (success && mounted) {
-                            setState(() {
-                              _stepIndex = 1;
-                            });
-                          }
-                        },
-                        icon: const Icon(
-                          Icons.check_circle_outline,
-                          color: Colors.white,
-                          size: 20,
-                        ),
-                        label: const Text(
-                          'Arrived at Location',
-                          style: TextStyle(
-                            fontSize: 16,
-                            color: Colors.white,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF16155D),
-                          elevation: 0,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                        ),
-                      ),
+                    : (_acceptedSubStep == 0
+                        ? ElevatedButton.icon(
+                            onPressed: () async {
+                              final bookingId = _getVal('_id')?.toString();
+                              if (bookingId != null) {
+                                ref.read(jobsProvider.notifier).updateBookingStatus(bookingId, 'on_the_way');
+                              }
+                              setState(() {
+                                _acceptedSubStep = 1;
+                              });
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('On the way! Opening Google Maps...'),
+                                  backgroundColor: Color(0xFF16155D),
+                                ),
+                              );
+                              _openGoogleMaps('$addressLine, $city');
+                            },
+                            icon: const Icon(
+                              Icons.directions_car_outlined,
+                              color: Colors.white,
+                              size: 20,
+                            ),
+                            label: const Text(
+                              'Leaving for Service',
+                              style: TextStyle(
+                                fontSize: 16,
+                                color: Colors.white,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF16155D),
+                              elevation: 0,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                            ),
+                          )
+                        : (_acceptedSubStep == 1
+                            ? ElevatedButton.icon(
+                                onPressed: () async {
+                                  final bookingId = _getVal('_id')?.toString();
+                                  if (bookingId != null) {
+                                    ref.read(jobsProvider.notifier).updateBookingStatus(bookingId, 'arrived');
+                                  }
+                                  setState(() {
+                                    _acceptedSubStep = 2;
+                                  });
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('Arrived at location! Tap Start Service when ready.'),
+                                      backgroundColor: Color(0xFF2E7D32),
+                                    ),
+                                  );
+                                },
+                                icon: const Icon(
+                                  Icons.location_on_outlined,
+                                  color: Colors.white,
+                                  size: 20,
+                                ),
+                                label: const Text(
+                                  'Arrived at Location',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF16155D),
+                                  elevation: 0,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                ),
+                              )
+                            : ElevatedButton.icon(
+                                onPressed: () async {
+                                  final beforePhotosToSend = _beforePhotos.isNotEmpty
+                                      ? _beforePhotos
+                                      : ['data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='];
+                                  final success = await ref
+                                      .read(jobsProvider.notifier)
+                                      .startService(_getVal('_id'), beforePhotosToSend);
+                                  if (success && mounted) {
+                                    setState(() {
+                                      _stepIndex = 1;
+                                    });
+                                  }
+                                },
+                                icon: const Icon(
+                                  Icons.play_circle_outline_rounded,
+                                  color: Colors.white,
+                                  size: 20,
+                                ),
+                                label: const Text(
+                                  'Start Service',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF16155D),
+                                  elevation: 0,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                ),
+                              ))),
               ),
             ),
           ),
@@ -1388,152 +1451,37 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
                         ],
                       ),
                       const SizedBox(height: 16),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: SizedBox(
-                              height: 44,
-                              child: ElevatedButton.icon(
-                                onPressed: _openChat,
-                                icon: const Icon(
-                                  Icons.chat_bubble_outline,
-                                  color: Color(0xFF0F9D58),
-                                  size: 16,
-                                ),
-                                label: const Text(
-                                  'Chat',
-                                  style: TextStyle(
-                                    color: Color(0xFF0F9D58),
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 13,
-                                  ),
-                                ),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFFF5F6FA),
-                                  elevation: 0,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                ),
-                              ),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 44,
+                        child: ElevatedButton.icon(
+                          onPressed: _makePhoneCall,
+                          icon: const Icon(
+                            Icons.phone_outlined,
+                            color: Color(0xFF16155D),
+                            size: 16,
+                          ),
+                          label: const Text(
+                            'Call',
+                            style: TextStyle(
+                              color: Color(0xFF16155D),
+                              fontWeight: FontWeight.bold,
+                              fontSize: 13,
                             ),
                           ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: SizedBox(
-                              height: 44,
-                              child: ElevatedButton.icon(
-                                onPressed: _makePhoneCall,
-                                icon: const Icon(
-                                  Icons.phone_outlined,
-                                  color: Color(0xFF16155D),
-                                  size: 16,
-                                ),
-                                label: const Text(
-                                  'Call',
-                                  style: TextStyle(
-                                    color: Color(0xFF16155D),
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 13,
-                                  ),
-                                ),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFFEFF1FE),
-                                  elevation: 0,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                ),
-                              ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFFEFF1FE),
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
                             ),
                           ),
-                        ],
+                        ),
                       ),
                     ],
                   ),
                 ),
 
-                // Service Photos Section
-                _buildSectionHeader('Service Photos'),
-                Builder(
-                  builder: (context) {
-                    final rawBefore = _getVal('beforePhotos');
-                    final bool hasSavedBefore = rawBefore != null && rawBefore is List && rawBefore.isNotEmpty;
-                    final bool isBeforeUploaded = _beforePhotos.isNotEmpty || hasSavedBefore;
-
-                    final rawAfter = _getVal('afterPhotos');
-                    final bool hasSavedAfter = rawAfter != null && rawAfter is List && rawAfter.isNotEmpty;
-                    final bool isAfterUploaded = _afterPhotos.isNotEmpty || _afterPhotosUploaded || hasSavedAfter;
-
-                    return Column(
-                      children: [
-                        Row(
-                          children: [
-                            _buildDashedPhotoContainer(
-                              title: 'Before Photos',
-                              isUploaded: isBeforeUploaded,
-                              onTap: () => _pickPhoto(isBefore: true),
-                            ),
-                            const SizedBox(width: 16),
-                            _buildDashedPhotoContainer(
-                              title: 'After Photos',
-                              isUploaded: isAfterUploaded,
-                              onTap: () => _pickPhoto(isBefore: false),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 10),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(
-                                    isBeforeUploaded ? Icons.check_circle : Icons.circle,
-                                    color: isBeforeUploaded ? const Color(0xFF0F9D58) : Colors.black12,
-                                    size: isBeforeUploaded ? 14 : 6,
-                                  ),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    isBeforeUploaded ? 'Uploaded' : 'Pending upload',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: isBeforeUploaded ? const Color(0xFF0F9D58) : Colors.black38,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(
-                                    isAfterUploaded ? Icons.check_circle : Icons.circle,
-                                    color: isAfterUploaded ? const Color(0xFF0F9D58) : Colors.black12,
-                                    size: isAfterUploaded ? 14 : 6,
-                                  ),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    isAfterUploaded ? 'Uploaded' : 'Pending completion',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: isAfterUploaded ? const Color(0xFF0F9D58) : Colors.black38,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    );
-                  },
-                ),
                 _buildPaymentStatusSection(),
                 const SizedBox(height: 24),
               ],
@@ -1549,25 +1497,21 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
                 width: double.infinity,
                 height: 54,
                 child: ElevatedButton.icon(
-                  onPressed: (_afterPhotos.isNotEmpty || _afterPhotosUploaded)
-                      ? () {
-                          _showCodCashCollectionDialog(() async {
-                            final afterPhotosToSend = _afterPhotos.isNotEmpty
-                                ? _afterPhotos
-                                : ['data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='];
-                            final success = await ref
-                                .read(jobsProvider.notifier)
-                                .finishService(_getVal('_id'), afterPhotosToSend);
-                            if (success && mounted) {
-                              setState(() {
-                                _stepIndex = 3; // Move to entering End OTP
-                              });
-                            }
-                          });
-                        }
-                      : null,
-                  icon: Icon(
-                    _afterPhotosUploaded ? Icons.check_circle_outline : Icons.lock_outline,
+                  onPressed: () {
+                    _showCodCashCollectionDialog(() async {
+                      final afterPhotosToSend = ['data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='];
+                      final success = await ref
+                          .read(jobsProvider.notifier)
+                          .finishService(_getVal('_id'), afterPhotosToSend);
+                      if (success && mounted) {
+                        setState(() {
+                          _stepIndex = 3; // Move to entering End OTP
+                        });
+                      }
+                    });
+                  },
+                  icon: const Icon(
+                    Icons.check_circle_outline,
                     color: Colors.white,
                     size: 20,
                   ),
@@ -1580,8 +1524,7 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
                     ),
                   ),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: _afterPhotosUploaded ? const Color(0xFF16155D) : const Color(0xFF7E7E9A),
-                    disabledBackgroundColor: const Color(0xFF7E7E9A),
+                    backgroundColor: const Color(0xFF16155D),
                     elevation: 0,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16),

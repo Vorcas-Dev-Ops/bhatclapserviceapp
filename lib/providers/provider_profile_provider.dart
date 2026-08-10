@@ -57,10 +57,6 @@ class ProviderProfileNotifier extends StateNotifier<ProfileState> {
       }
     } on DioException catch (e) {
       print('=== ProviderProfileNotifier: fetchProfile threw DioException: $e ===');
-      if (e.response?.statusCode == 401) {
-        print('=== ProviderProfileNotifier: unauthorized (401), logging out ===');
-        _ref.read(authProvider.notifier).logout();
-      }
       state = ProfileState(
         status: ProfileStatus.error,
         errorMessage: e.response?.data['message'] ?? 'Failed to load profile',
@@ -97,9 +93,6 @@ class ProviderProfileNotifier extends StateNotifier<ProfileState> {
       print('=== ProviderProfileNotifier: updateProfile DioException: $e ===');
       print('=== Response status code: ${e.response?.statusCode} ===');
       print('=== Response data: ${e.response?.data} ===');
-      if (e.response?.statusCode == 401) {
-        _ref.read(authProvider.notifier).logout();
-      }
       state = state.copyWith(
         status: ProfileStatus.error,
         errorMessage: e.response?.data['message'] ?? 'Failed to update profile',
@@ -139,9 +132,6 @@ class ProviderProfileNotifier extends StateNotifier<ProfileState> {
       }
       return false;
     } on DioException catch (e) {
-      if (e.response?.statusCode == 401) {
-        _ref.read(authProvider.notifier).logout();
-      }
       state = state.copyWith(
         status: ProfileStatus.error,
         errorMessage: e.response?.data['message'] ?? 'Failed to register services',

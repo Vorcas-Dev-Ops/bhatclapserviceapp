@@ -203,6 +203,23 @@ class JobsNotifier extends StateNotifier<JobsState> {
     }
   }
 
+  // Update Booking Status (e.g. on_the_way, arrived)
+  Future<bool> updateBookingStatus(String bookingId, String status) async {
+    try {
+      final response = await _apiClient.dio.put(
+        '/api/bookings/$bookingId/status',
+        data: {'status': status},
+      );
+      if (response.statusCode == 200) {
+        await fetchAllJobs();
+        return true;
+      }
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
+
   // Resend OTP
   Future<bool> resendOtp(String bookingId, String type) async {
     try {

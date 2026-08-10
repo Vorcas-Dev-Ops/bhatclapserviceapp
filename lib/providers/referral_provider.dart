@@ -96,9 +96,6 @@ class ReferralNotifier extends StateNotifier<ReferralState> {
         );
       }
     } on DioException catch (e) {
-      if (e.response?.statusCode == 401) {
-        _ref.read(authProvider.notifier).logout();
-      }
       state = state.copyWith(
         status: ReferralStatus.error,
         errorMessage: e.response?.data['message'] ?? 'Failed to load referral dashboard',
@@ -135,9 +132,6 @@ class ReferralNotifier extends StateNotifier<ReferralState> {
         return false;
       }
     } on DioException catch (e) {
-      if (e.response?.statusCode == 401) {
-        _ref.read(authProvider.notifier).logout();
-      }
       final msg = e.response?.data['message'] ?? 'Invalid referral code';
       state = state.copyWith(
         isApplying: false,

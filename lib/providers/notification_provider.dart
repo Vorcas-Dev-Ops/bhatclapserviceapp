@@ -87,9 +87,6 @@ class NotificationNotifier extends StateNotifier<NotificationState> {
         );
       }
     } on DioException catch (e) {
-      if (e.response?.statusCode == 401) {
-        _ref.read(authProvider.notifier).logout();
-      }
       state = state.copyWith(
         status: NotificationStatus.error,
         errorMessage: e.response?.data['message'] ?? 'Failed to load notifications',
@@ -107,6 +104,34 @@ class NotificationNotifier extends StateNotifier<NotificationState> {
       await _apiClient.dio.put('/api/notifications/$id/read');
       await fetchNotifications();
     } catch (_) {}
+  }
+
+  Future<void> markAllAsRead() async {
+    final unreadItems = state.notifications.where((n) => n['is_read'] != true).toList();
+    if (unreadItems.isEmpty) return;
+
+    final updatedNotifications = state.notifications.map((item) {
+      if (item is Map) {
+        final Map<String, dynamic> mutable = Map<String, dynamic>.from(item);
+        mutable['is_read'] = true;
+        return mutable;
+      }
+      return item;
+    }).toList();
+
+    state = state.copyWith(notifications: updatedNotifications);
+
+    try {
+      final futures = unreadItems.map((item) {
+        final id = item['_id']?.toString() ?? item['id']?.toString();
+        if (id != null) {
+          return _apiClient.dio.put('/api/notifications/$id/read');
+        }
+        return Future.value(null);
+      });
+      await Future.wait(futures);
+    } catch (_) {}
+    await fetchNotifications();
   }
 }
 

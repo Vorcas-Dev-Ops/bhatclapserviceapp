@@ -52,9 +52,6 @@ class ProviderAnalyticsNotifier extends StateNotifier<AnalyticsState> {
         );
       }
     } on DioException catch (e) {
-      if (e.response?.statusCode == 401) {
-        _ref.read(authProvider.notifier).logout();
-      }
       state = AnalyticsState(
         status: AnalyticsStatus.error,
         errorMessage: e.response?.data['message'] ?? 'Failed to load analytics',

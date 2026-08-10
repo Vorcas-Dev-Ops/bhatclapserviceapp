@@ -15,10 +15,12 @@ import 'package:partner_app/screens/jobs/job_details_screen.dart';
 import 'package:partner_app/screens/finance/money_screen.dart';
 import 'package:partner_app/screens/finance/add_credits_screen.dart';
 import 'package:partner_app/screens/profile/profile_screen.dart';
+import 'package:partner_app/screens/profile/subscription_screen.dart';
 import 'package:partner_app/screens/shop/starter_kit_screen.dart';
 import 'package:partner_app/screens/profile/referral_screen.dart';
 import 'package:partner_app/services/notification_service.dart';
 import 'package:partner_app/services/partner_notification_sync_service.dart';
+import 'package:partner_app/utils/address_utils.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -92,9 +94,49 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
+  Widget _buildRedLeadCountBadge(BuildContext context, int leadCount) {
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (context) => const SubscriptionScreen()),
+        );
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFFF0F0),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: const Color(0xFFFF3B30), width: 1.5),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.flash_on,
+              color: Color(0xFFE53935),
+              size: 16,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              '$leadCount Leads',
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFFE53935),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildTopBar() {
     final profileState = ref.watch(providerProfileProvider);
     final profile = profileState.profileData;
+    final walletState = ref.watch(walletProvider);
+    final leadCount = walletState.leadBalance;
     
     int creditsVal = 0;
     if (profile != null) {
@@ -107,56 +149,74 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 12.0),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Credits pill
-          GestureDetector(
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const AddCreditsScreen()),
-              );
-            },
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF5F6FA),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Row(
-                children: [
-                  // Hexagon/diamond shape simulated
-                  Stack(
-                    alignment: Alignment.center,
+          const Text(
+            'BharatClap',
+            style: TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.w900,
+              color: Color(0xFF16155D),
+              letterSpacing: -0.5,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              // Credits & Lead Count pills
+              Row(
+            children: [
+              GestureDetector(
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const AddCreditsScreen()),
+                  );
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF5F6FA),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Row(
                     children: [
-                      const Icon(
-                        Icons.hexagon,
-                        color: Color(0xFF2D3047),
-                        size: 20,
+                      Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          const Icon(
+                            Icons.hexagon,
+                            color: Color(0xFF2D3047),
+                            size: 20,
+                          ),
+                          Container(
+                            width: 6,
+                            height: 6,
+                            decoration: const BoxDecoration(
+                              color: Colors.white,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                        ],
                       ),
-                      Container(
-                        width: 6,
-                        height: 6,
-                        decoration: const BoxDecoration(
-                          color: Colors.white,
-                          shape: BoxShape.circle,
+                      const SizedBox(width: 8),
+                      Text(
+                        '$creditsVal',
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF2D3047),
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(width: 8),
-                  Text(
-                    '$creditsVal',
-                    style: const TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF2D3047),
-                    ),
-                  ),
-                ],
+                ),
               ),
-            ),
+              const SizedBox(width: 8),
+              _buildRedLeadCountBadge(context, leadCount),
+            ],
           ),
 
           // Actions
@@ -221,7 +281,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ),
         ],
       ),
-    );
+    ],
+  ),
+);
   }
 
   void _showIncomingJobBottomSheet(BuildContext context, JobRequestModel job) {
@@ -280,7 +342,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  '${job.address}, ${job.city}',
+                  formatAddress(job.address, city: job.city),
                   style: const TextStyle(
                     fontSize: 14,
                     color: Colors.black54,
@@ -353,6 +415,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                             Navigator.pop(context);
                             final success = await ref.read(jobDispatchProvider.notifier).acceptJob(job.requestId);
                             if (success && mounted) {
+                              if (!context.mounted) return;
                               showTopPillToast(context, 'Job accepted! Navigate to Jobs tab for instructions.');
                             }
                           },
@@ -484,7 +547,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.2),
+                  color: Colors.white.withValues(alpha: 0.2),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: const Icon(Icons.inventory_2_outlined, color: Colors.white),
@@ -514,79 +577,403 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
-  Widget _buildStatCard(String title, String value, {bool showStar = false}) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withAlpha(5),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
-            )
-          ],
-        ),
-        child: Column(
-          children: [
-            Text(
-              title,
-              style: const TextStyle(
-                fontSize: 12,
-                color: Colors.black45,
-                fontWeight: FontWeight.w500,
-              ),
+  bool _isTodayDate(dynamic dateVal) {
+    if (dateVal == null) return false;
+    final String dateStr = dateVal.toString();
+    final now = DateTime.now();
+    final todayStr = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+
+    if (dateStr.toLowerCase().contains('today')) return true;
+    if (dateStr.startsWith(todayStr)) return true;
+
+    final dt = DateTime.tryParse(dateStr);
+    if (dt != null) {
+      return dt.year == now.year && dt.month == now.month && dt.day == now.day;
+    }
+    return false;
+  }
+
+  bool _isThisMonthDate(dynamic dateVal) {
+    if (dateVal == null) return false;
+    final String dateStr = dateVal.toString();
+    final now = DateTime.now();
+
+    final dt = DateTime.tryParse(dateStr);
+    if (dt != null) {
+      return dt.year == now.year && dt.month == now.month;
+    }
+    return false;
+  }
+
+  Widget _buildStatCard(String title, String value, {bool showStar = false, VoidCallback? onTap}) {
+    final cardContent = Container(
+      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 6),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withAlpha(5),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          )
+        ],
+      ),
+      child: Column(
+        children: [
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 11,
+              color: Colors.black45,
+              fontWeight: FontWeight.w500,
             ),
-            const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
+            textAlign: TextAlign.center,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Flexible(
+                child: Text(
                   value,
                   style: const TextStyle(
-                    fontSize: 20,
+                    fontSize: 18,
                     fontWeight: FontWeight.bold,
                     color: Color(0xFF16155D),
                   ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
-                if (showStar) ...[
-                  const SizedBox(width: 4),
-                  const Icon(
-                    Icons.star,
-                    color: Colors.amber,
-                    size: 16,
+              ),
+              if (showStar) ...[
+                const SizedBox(width: 4),
+                const Icon(
+                  Icons.star,
+                  color: Colors.amber,
+                  size: 16,
+                ),
+              ]
+            ],
+          ),
+        ],
+      ),
+    );
+
+    return Expanded(
+      child: onTap != null
+          ? GestureDetector(
+              onTap: onTap,
+              child: cardContent,
+            )
+          : cardContent,
+    );
+  }
+
+  void _showDailyIncomeModal(BuildContext context, List<dynamic> todayBookings, double dailyIncome) {
+    final acceptedStatuses = [
+      'accepted',
+      'on_the_way',
+      'arrived',
+      'waiting_start_otp',
+      'in_progress',
+      'started',
+      'waiting_end_otp',
+      'completed'
+    ];
+
+    final filteredTodayBookings = todayBookings.where((b) {
+      final status = (b['status'] ?? '').toString().toLowerCase();
+      return acceptedStatuses.contains(status);
+    }).toList();
+
+    final onlineJobs = filteredTodayBookings.where((b) {
+      final method = (b['payment_method'] ?? b['paymentMode'] ?? b['payment_type'] ?? '').toString().toLowerCase();
+      return !method.contains('cod') && !method.contains('cash');
+    }).toList();
+
+    final codJobs = filteredTodayBookings.where((b) {
+      final method = (b['payment_method'] ?? b['paymentMode'] ?? b['payment_type'] ?? '').toString().toLowerCase();
+      return method.contains('cod') || method.contains('cash');
+    }).toList();
+
+    double acceptedDailyTotal = 0;
+    for (final b in filteredTodayBookings) {
+      final amt = (b['payable_amount'] as num?)?.toDouble() ?? (b['total_amount'] as num?)?.toDouble() ?? (b['amount'] as num?)?.toDouble() ?? 0.0;
+      acceptedDailyTotal += amt;
+    }
+    final displayTotal = acceptedDailyTotal > 0 ? acceptedDailyTotal : dailyIncome;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (modalCtx) {
+        return DefaultTabController(
+          length: 2,
+          child: Container(
+            height: MediaQuery.of(context).size.height * 0.75,
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            child: Column(
+              children: [
+                Container(
+                  margin: const EdgeInsets.only(top: 12, bottom: 8),
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(2),
                   ),
-                ]
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Daily Income Breakdown',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF16155D),
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Today\'s Total: ₹${displayTotal.toStringAsFixed(0)}',
+                            style: const TextStyle(
+                              fontSize: 13,
+                              color: Colors.green,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close, color: Colors.black54),
+                        onPressed: () => Navigator.pop(modalCtx),
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1),
+                Container(
+                  color: const Color(0xFFF5F6FA),
+                  child: const TabBar(
+                    labelColor: Color(0xFF16155D),
+                    unselectedLabelColor: Colors.black45,
+                    indicatorColor: Color(0xFF16155D),
+                    indicatorWeight: 3,
+                    labelStyle: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                    tabs: [
+                      Tab(text: 'Online Payment'),
+                      Tab(text: 'COD'),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: TabBarView(
+                    children: [
+                      _buildDailyIncomeJobsList(onlineJobs, isCod: false),
+                      _buildDailyIncomeJobsList(codJobs, isCod: true),
+                    ],
+                  ),
+                ),
               ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildDailyIncomeJobsList(List<dynamic> jobs, {required bool isCod}) {
+    if (jobs.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              isCod ? Icons.money_off_csred_outlined : Icons.credit_card_off_outlined,
+              size: 48,
+              color: Colors.grey.shade400,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              isCod ? 'No Cash on Delivery (COD) jobs today' : 'No Online Payment jobs today',
+              style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
             ),
           ],
         ),
-      ),
+      );
+    }
+
+    return ListView.separated(
+      padding: const EdgeInsets.all(16),
+      itemCount: jobs.length,
+      separatorBuilder: (context, index) => const SizedBox(height: 12),
+      itemBuilder: (context, index) {
+        final job = jobs[index];
+        final subservice = job['subservice_id'] ?? {};
+        final title = subservice['subservice_name'] ?? job['variant_name'] ?? 'Service';
+        final bookingId = job['display_id'] ?? job['booking_id']?.toString() ?? job['_id']?.toString() ?? '';
+        final amt = (job['payable_amount'] as num?)?.toDouble() ?? (job['total_amount'] as num?)?.toDouble() ?? (job['amount'] as num?)?.toDouble() ?? 0.0;
+        final status = (job['status'] ?? 'completed').toString();
+        final time = job['booking_time'] ?? 'Today';
+
+        return Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: const Color(0xFFFAFAFC),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.grey.shade200),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF1C1F3E),
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '${bookingId.isNotEmpty ? "Ref: $bookingId • " : ""}$time',
+                      style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                    ),
+                    const SizedBox(height: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: isCod ? Colors.orange.shade50 : Colors.green.shade50,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        isCod ? 'Cash on Delivery (COD)' : 'Online Payment (Paid)',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          color: isCod ? Colors.orange.shade800 : Colors.green.shade800,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    '₹${amt.toStringAsFixed(0)}',
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF16155D),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    status.toUpperCase(),
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      color: status == 'completed' ? Colors.green.shade700 : Colors.blue.shade700,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
   Widget _buildStatsRow() {
-    final profileState = ref.watch(providerProfileProvider);
-    final profile = profileState.profileData;
-    
     final analyticsState = ref.watch(providerAnalyticsProvider);
     final analytics = analyticsState.analyticsData;
-    
-    final totalJobs = analytics?['todayOrders']?.toString() ?? profile?['total_jobs']?.toString() ?? '0';
-    final earnings = analytics?['totalRevenue'] != null ? '₹${analytics!['totalRevenue']}' : (profile?['earnings'] != null ? '₹${profile!['earnings']}' : '₹0');
-    final rating = (profile?['overall_rating'] as num?)?.toStringAsFixed(1) ?? '0.0';
+
+    final jobsState = ref.watch(jobsProvider);
+    final bookings = jobsState.bookings;
+
+    final acceptedStatuses = [
+      'accepted',
+      'on_the_way',
+      'arrived',
+      'waiting_start_otp',
+      'in_progress',
+      'started',
+      'waiting_end_otp',
+      'completed'
+    ];
+
+    // 1. Calculate Today's Jobs (ONLY accepted/active/completed by provider)
+    final todayBookings = bookings.where((b) {
+      final scheduledAt = b['scheduled_at'] ?? b['createdAt'] ?? b['date'];
+      final status = (b['status'] ?? '').toString().toLowerCase();
+      if (!acceptedStatuses.contains(status)) return false;
+      return _isTodayDate(scheduledAt);
+    }).toList();
+
+    int todaysJobsCount = todayBookings.length;
+
+    // 2. Calculate Daily Income (ONLY accepted/active/completed by provider)
+    double dailyIncome = 0;
+    for (final b in todayBookings) {
+      final amt = (b['payable_amount'] as num?)?.toDouble() ?? (b['total_amount'] as num?)?.toDouble() ?? (b['amount'] as num?)?.toDouble() ?? 0.0;
+      dailyIncome += amt;
+    }
+
+    // 3. Calculate Monthly Income (ONLY accepted/active/completed by provider)
+    double monthlyIncome = 0;
+    for (final b in bookings) {
+      final scheduledAt = b['scheduled_at'] ?? b['createdAt'] ?? b['date'];
+      final status = (b['status'] ?? '').toString().toLowerCase();
+      if (acceptedStatuses.contains(status) && _isThisMonthDate(scheduledAt)) {
+        final amt = (b['payable_amount'] as num?)?.toDouble() ?? (b['total_amount'] as num?)?.toDouble() ?? (b['amount'] as num?)?.toDouble() ?? 0.0;
+        monthlyIncome += amt;
+      }
+    }
+    if (analytics?['monthRevenue'] != null) {
+      final analyticsMonth = (analytics!['monthRevenue'] as num).toDouble();
+      if (analyticsMonth > monthlyIncome) {
+        monthlyIncome = analyticsMonth;
+      }
+    } else if (analytics?['totalRevenue'] != null) {
+      final analyticsTotal = (analytics!['totalRevenue'] as num).toDouble();
+      if (analyticsTotal > monthlyIncome) {
+        monthlyIncome = analyticsTotal;
+      }
+    }
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24.0),
       child: Row(
         children: [
-          _buildStatCard('Today\'s Jobs', totalJobs),
-          const SizedBox(width: 12),
-          _buildStatCard('Earnings', earnings),
-          const SizedBox(width: 12),
-          _buildStatCard('Rating', rating, showStar: true),
+          _buildStatCard('Today\'s Jobs', '$todaysJobsCount'),
+          const SizedBox(width: 8),
+          _buildStatCard('Monthly Income', '₹${monthlyIncome.toStringAsFixed(0)}'),
+          const SizedBox(width: 8),
+          _buildStatCard(
+            'Daily Income',
+            '₹${dailyIncome.toStringAsFixed(0)}',
+            onTap: () => _showDailyIncomeModal(context, todayBookings, dailyIncome),
+          ),
         ],
       ),
     );
@@ -766,13 +1153,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 12.0),
-                  child: _buildTimelineCard(
-                    status: status,
-                    time: time,
-                    title: serviceName,
-                    location: '$addressLine, $city',
-                    isOngoing: isOngoing,
-                    isLast: index == (upcomingAndOngoing.length > 2 ? 1 : upcomingAndOngoing.length - 1),
+                  child: GestureDetector(
+                    onTap: () => _navigateToDetails(booking),
+                    child: _buildTimelineCard(
+                      status: status,
+                      time: time,
+                      title: serviceName,
+                      location: formatAddress(addressLine, city: city),
+                      isOngoing: isOngoing,
+                      isLast: index == (upcomingAndOngoing.length > 2 ? 1 : upcomingAndOngoing.length - 1),
+                    ),
                   ),
                 );
               },
@@ -1041,7 +1431,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                       ),
                                       const SizedBox(height: 4),
                                       Text(
-                                        '${job.address}, ${job.city}',
+                                        formatAddress(job.address, city: job.city),
                                         style: const TextStyle(
                                           fontSize: 12,
                                           color: Colors.black38,
@@ -1156,7 +1546,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 ),
               ),
             );
-          }).toList(),
+          }),
         ],
       ),
     );
@@ -1231,25 +1621,25 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             childAspectRatio: 1.4,
             children: [
               _buildQuickActionCard(Icons.calendar_today_outlined, 'Availability', () async {
+                final currentContext = context;
                 final success = await ref.read(jobDispatchProvider.notifier).toggleAvailability();
-                if (context.mounted) {
-                  final dispatchState = ref.read(jobDispatchProvider);
-                  if (success) {
-                    final isOnline = dispatchState.isOnline;
-                    showTopPillToast(
-                      context,
-                      isOnline ? 'You are online!' : 'You are offline',
-                      isError: false,
-                      isOffline: !isOnline,
-                    );
-                  } else {
-                    final err = dispatchState.error;
-                    showTopPillToast(
-                      context,
-                      err ?? 'Failed to update availability status.',
-                      isError: true,
-                    );
-                  }
+                if (!currentContext.mounted) return;
+                final dispatchState = ref.read(jobDispatchProvider);
+                if (success) {
+                  final isOnline = dispatchState.isOnline;
+                  showTopPillToast(
+                    currentContext,
+                    isOnline ? 'You are online!' : 'You are offline',
+                    isError: false,
+                    isOffline: !isOnline,
+                  );
+                } else {
+                  final err = dispatchState.error;
+                  showTopPillToast(
+                    currentContext,
+                    err ?? 'Failed to update availability status.',
+                    isError: true,
+                  );
                 }
               }),
               _buildQuickActionCard(Icons.account_balance_wallet_outlined, 'Add Credits', () {
@@ -1501,7 +1891,7 @@ class SquareOnlineSlider extends StatelessWidget {
           boxShadow: isOnline
               ? [
                   BoxShadow(
-                    color: const Color(0xFF10B981).withOpacity(0.35),
+                    color: const Color(0xFF10B981).withValues(alpha: 0.35),
                     blurRadius: 8,
                     offset: const Offset(0, 3),
                   ),
@@ -1544,7 +1934,7 @@ class SquareOnlineSlider extends StatelessWidget {
                   borderRadius: BorderRadius.circular(7),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.12),
+                      color: Colors.black.withValues(alpha: 0.12),
                       blurRadius: 4,
                       offset: const Offset(0, 2),
                     ),
@@ -1682,7 +2072,7 @@ class _TopPillToastWidgetState extends State<_TopPillToastWidget> with SingleTic
                   borderRadius: BorderRadius.circular(30),
                   boxShadow: [
                     BoxShadow(
-                      color: toastBgColor.withOpacity(0.35),
+                      color: toastBgColor.withValues(alpha: 0.35),
                       blurRadius: 16,
                       offset: const Offset(0, 6),
                     ),

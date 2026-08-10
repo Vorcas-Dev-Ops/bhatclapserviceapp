@@ -13,6 +13,7 @@ class WalletState {
   final List<dynamic> transactions;
   final List<dynamic> reviews;
   final int credits;
+  final int leadBalance;
   final String? errorMessage;
 
   WalletState({
@@ -20,7 +21,8 @@ class WalletState {
     this.balance = 0.0,
     this.transactions = const [],
     this.reviews = const [],
-    this.credits = 144,
+    this.credits = 100,
+    this.leadBalance = 24,
     this.errorMessage,
   });
 
@@ -32,6 +34,7 @@ class WalletState {
     List<dynamic>? transactions,
     List<dynamic>? reviews,
     int? credits,
+    int? leadBalance,
     String? errorMessage,
   }) {
     return WalletState(
@@ -40,6 +43,7 @@ class WalletState {
       transactions: transactions ?? this.transactions,
       reviews: reviews ?? this.reviews,
       credits: credits ?? this.credits,
+      leadBalance: leadBalance ?? this.leadBalance,
       errorMessage: errorMessage ?? this.errorMessage,
     );
   }
@@ -58,11 +62,15 @@ class WalletNotifier extends StateNotifier<WalletState> {
   Future<void> fetchWalletAndReviews() async {
     state = state.copyWith(status: WalletStatus.loading);
     try {
-      // 1. Get wallet info
-      final walletResponse = await _apiClient.dio.get('/api/wallets/me');
+      // 1. Get wallet info from active balance endpoint
+      final walletResponse = await _apiClient.dio.get('/api/providers/wallet/balance');
       double balance = 0.0;
-      if (walletResponse.statusCode == 200) {
-        balance = (walletResponse.data['balance'] as num?)?.toDouble() ?? 0.0;
+      if (walletResponse.statusCode == 200 && walletResponse.data is Map) {
+        final data = walletResponse.data;
+        balance = (data['availableBalance'] as num?)?.toDouble() ??
+            (data['walletBalance'] as num?)?.toDouble() ??
+            (data['balance'] as num?)?.toDouble() ??
+            0.0;
       }
 
       // 1b. Get true ledger transactions
@@ -79,16 +87,23 @@ class WalletNotifier extends StateNotifier<WalletState> {
         reviews = reviewsResponse.data;
       }
 
+      // 3. Get lead balance
+      int leadBalance = 24;
+      try {
+        final leadResponse = await _apiClient.dio.get('/api/providers/lead-balance');
+        if (leadResponse.statusCode == 200 && leadResponse.data is Map) {
+          leadBalance = (leadResponse.data['leadBalance'] as num?)?.toInt() ?? 24;
+        }
+      } catch (_) {}
+
       state = state.copyWith(
         status: WalletStatus.loaded,
         balance: balance,
         transactions: transactions,
         reviews: reviews,
+        leadBalance: leadBalance,
       );
     } on DioException catch (e) {
-      if (e.response?.statusCode == 401) {
-        _ref.read(authProvider.notifier).logout();
-      }
       state = state.copyWith(
         status: WalletStatus.error,
         errorMessage: e.response?.data['message'] ?? 'Failed to load wallet/reviews info',
@@ -98,21 +113,24 @@ class WalletNotifier extends StateNotifier<WalletState> {
 
   // Withdraw wallet balance (REST API)
   Future<bool> withdrawMoney(double amount) async {
+    final profile = _ref.read(providerProfileProvider).profileData;
+    final providerId = profile?['_id'];
     try {
       final response = await _apiClient.dio.post(
-        '/api/wallets/withdraw',
-        data: {'amount': amount},
+        '/api/payouts',
+        data: {
+          if (providerId != null) 'provider_id': providerId,
+          'amount': amount,
+          'payment_method': 'bank_transfer',
+        },
       );
-      if (response.statusCode == 200) {
+      if (response.statusCode == 200 || response.statusCode == 201) {
         // Reload wallet details
         await fetchWalletAndReviews();
         return true;
       }
       return false;
-    } on DioException catch (e) {
-      if (e.response?.statusCode == 401) {
-        _ref.read(authProvider.notifier).logout();
-      }
+    } on DioException catch (_) {
       return false;
     } catch (_) {
       return false;
@@ -135,10 +153,7 @@ class WalletNotifier extends StateNotifier<WalletState> {
         },
       );
       return response.statusCode == 201;
-    } on DioException catch (e) {
-      if (e.response?.statusCode == 401) {
-        _ref.read(authProvider.notifier).logout();
-      }
+    } on DioException catch (_) {
       return false;
     } catch (_) {
       return false;
@@ -162,8 +177,8 @@ class WalletNotifier extends StateNotifier<WalletState> {
       }
       return null;
     } on DioException catch (e) {
-      if (e.response?.statusCode == 401) {
-        _ref.read(authProvider.notifier).logout();
+      if (e.response?.data != null && e.response?.data is Map) {
+        return e.response?.data as Map<String, dynamic>;
       }
       return null;
     } catch (_) {
@@ -196,10 +211,7 @@ class WalletNotifier extends StateNotifier<WalletState> {
         return true;
       }
       return false;
-    } on DioException catch (e) {
-      if (e.response?.statusCode == 401) {
-        _ref.read(authProvider.notifier).logout();
-      }
+    } on DioException catch (_) {
       return false;
     } catch (_) {
       return false;

@@ -41,6 +41,18 @@ class _PartnerNotificationsScreenState extends ConsumerState<PartnerNotification
             color: Color(0xFF1C1F3E),
           ),
         ),
+        actions: [
+          IconButton(
+            icon: Icon(
+              Icons.done_all,
+              color: notificationState.unreadCount > 0 ? const Color(0xFF16155D) : Colors.grey.shade400,
+            ),
+            tooltip: 'Mark all as read',
+            onPressed: notificationState.unreadCount > 0
+                ? () => ref.read(notificationProvider.notifier).markAllAsRead()
+                : null,
+          ),
+        ],
       ),
       body: notificationState.status == NotificationStatus.loading
           ? const Center(child: CircularProgressIndicator())

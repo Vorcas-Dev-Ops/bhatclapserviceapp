@@ -344,22 +344,77 @@ class _MoneyScreenState extends ConsumerState<MoneyScreen> {
     );
   }
 
-  Widget _buildTopBar(double balance, int credits) {
+  Widget _buildRedLeadCountBadge(BuildContext context, int leadCount) {
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (context) => const SubscriptionScreen()),
+        );
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFFF0F0),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: const Color(0xFFFF3B30), width: 1.5),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.flash_on,
+              color: Color(0xFFE53935),
+              size: 16,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              '$leadCount Leads',
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFFE53935),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTopBar(double balance, int credits, int leadCount) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 12.0),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          const Text(
-            'Money',
-            style: TextStyle(
-              fontSize: 26,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF1C1F3E),
-            ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: const [
+              Text(
+                'BharatClap',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                  color: Color(0xFF16155D),
+                  letterSpacing: -0.5,
+                ),
+              ),
+              SizedBox(height: 2),
+              Text(
+                'Money',
+                style: TextStyle(
+                  fontSize: 26,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF1C1F3E),
+                ),
+              ),
+            ],
           ),
           Row(
             children: [
+              _buildRedLeadCountBadge(context, leadCount),
+              const SizedBox(width: 8),
               GestureDetector(
                 onTap: () {
                   Navigator.push(
@@ -988,7 +1043,7 @@ class _MoneyScreenState extends ConsumerState<MoneyScreen> {
 
     return Column(
       children: [
-        _buildTopBar(walletState.balance, creditsVal),
+        _buildTopBar(walletState.balance, creditsVal, walletState.leadBalance),
         const SizedBox(height: 8),
         Expanded(
           child: isLoading

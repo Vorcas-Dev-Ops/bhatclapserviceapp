@@ -98,15 +98,30 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   }
 
   Widget _buildTopBar() {
-    return const Padding(
-      padding: EdgeInsets.symmetric(horizontal: 24.0, vertical: 12.0),
-      child: Text(
-        'My Profile',
-        style: TextStyle(
-          fontSize: 26,
-          fontWeight: FontWeight.bold,
-          color: Color(0xFF1C1F3E),
-        ),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 12.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: const [
+          Text(
+            'BharatClap',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w900,
+              color: Color(0xFF16155D),
+              letterSpacing: -0.5,
+            ),
+          ),
+          SizedBox(height: 2),
+          Text(
+            'My Profile',
+            style: TextStyle(
+              fontSize: 26,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF1C1F3E),
+            ),
+          ),
+        ],
       ),
     );
   }
