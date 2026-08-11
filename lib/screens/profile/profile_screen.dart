@@ -7,16 +7,15 @@ import 'package:partner_app/providers/auth_provider.dart';
 import 'package:partner_app/providers/provider_profile_provider.dart';
 import 'package:partner_app/providers/job_dispatch_provider.dart';
 import 'package:partner_app/screens/onboarding/onboarding_screen.dart';
-import 'package:partner_app/screens/finance/loans_screen.dart';
 import 'package:partner_app/screens/profile/profile_identity_verification_screen.dart';
 import 'package:partner_app/screens/jobs/calendar_screen.dart';
 import 'package:partner_app/screens/jobs/job_history_screen.dart';
 import 'package:partner_app/screens/finance/credits_screen.dart';
 import 'package:partner_app/screens/profile/performance_screen.dart';
-import 'package:partner_app/screens/finance/insurance_screen.dart';
 import 'package:partner_app/screens/shop/shop_screen.dart';
 import 'package:partner_app/screens/profile/subscription_screen.dart';
-import 'package:partner_app/screens/profile/referral_screen.dart';
+import 'package:partner_app/screens/profile/help_support_screen.dart';
+import 'package:partner_app/screens/profile/privacy_policy_screen.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
@@ -401,19 +400,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
               ),
               const Divider(height: 1, color: Color(0xFFEFF1FE)),
               _buildListTile(
-                icon: Icons.payment_outlined,
-                title: 'Loans',
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const LoansScreen(),
-                    ),
-                  );
-                },
-              ),
-              const Divider(height: 1, color: Color(0xFFEFF1FE)),
-              _buildListTile(
                 icon: Icons.stars_outlined,
                 title: 'Credits',
                 onTap: () {
@@ -434,19 +420,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     context,
                     MaterialPageRoute(
                       builder: (context) => const PerformanceScreen(),
-                    ),
-                  );
-                },
-              ),
-              const Divider(height: 1, color: Color(0xFFEFF1FE)),
-              _buildListTile(
-                icon: Icons.shield_outlined,
-                title: 'Insurance',
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const InsuranceScreen(),
                     ),
                   );
                 },
@@ -479,24 +452,14 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
               ),
               const Divider(height: 1, color: Color(0xFFEFF1FE)),
               _buildListTile(
-                icon: Icons.people_outline,
-                title: 'Invite a friend',
+                icon: Icons.headset_mic_outlined,
+                title: 'Help & Support',
                 onTap: () {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (context) => const ReferralScreen(),
+                      builder: (context) => const PartnerHelpSupportScreen(),
                     ),
-                  );
-                },
-              ),
-              const Divider(height: 1, color: Color(0xFFEFF1FE)),
-              _buildListTile(
-                icon: Icons.headset_mic_outlined,
-                title: 'Help & Support',
-                onTap: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Support center coming soon!')),
                   );
                 },
               ),
@@ -526,6 +489,19 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           borderRadius: BorderRadius.circular(20),
           child: Column(
             children: [
+              _buildListTile(
+                icon: Icons.description_outlined,
+                title: 'Privacy Policy',
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const PrivacyPolicyScreen(),
+                    ),
+                  );
+                },
+              ),
+              const Divider(height: 1, color: Color(0xFFEFF1FE)),
               _buildListTile(
                 icon: Icons.translate_outlined,
                 title: 'Change Language',

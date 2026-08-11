@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:partner_app/providers/job_dispatch_provider.dart';
 import 'package:partner_app/providers/jobs_provider.dart';
 import 'package:partner_app/utils/address_utils.dart';
+import 'package:partner_app/screens/chat/partner_chat_screen.dart';
 
 class JobDetailsScreen extends ConsumerStatefulWidget {
   final dynamic booking;
@@ -679,32 +680,79 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
                         ],
                       ),
                       const SizedBox(height: 20),
-                      SizedBox(
-                        width: double.infinity,
-                        height: 48,
-                        child: ElevatedButton.icon(
-                          onPressed: _makePhoneCall,
-                          icon: const Icon(
-                            Icons.phone_outlined,
-                            color: Color(0xFF16155D),
-                            size: 18,
-                          ),
-                          label: const Text(
-                            'Call',
-                            style: TextStyle(
-                              color: Color(0xFF16155D),
-                              fontWeight: FontWeight.bold,
-                              fontSize: 14,
+                      Row(
+                        children: [
+                          Expanded(
+                            child: SizedBox(
+                              height: 48,
+                              child: ElevatedButton.icon(
+                                onPressed: () {
+                                  final bId = (_getVal('booking_id') ?? _getVal('display_id') ?? _getVal('_id') ?? _getVal('id'))?.toString();
+                                  if (bId != null && bId.isNotEmpty) {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (context) => PartnerChatScreen(
+                                          bookingId: bId,
+                                          customerName: userName,
+                                        ),
+                                      ),
+                                    );
+                                  }
+                                },
+                                icon: const Icon(
+                                  Icons.chat_bubble_outline_rounded,
+                                  color: Color(0xFF16155D),
+                                  size: 18,
+                                ),
+                                label: const Text(
+                                  'Chat',
+                                  style: TextStyle(
+                                    color: Color(0xFF16155D),
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFFEFF1FE),
+                                  elevation: 0,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                ),
+                              ),
                             ),
                           ),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFFEFF1FE),
-                            elevation: 0,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: SizedBox(
+                              height: 48,
+                              child: ElevatedButton.icon(
+                                onPressed: _makePhoneCall,
+                                icon: const Icon(
+                                  Icons.phone_outlined,
+                                  color: Colors.white,
+                                  size: 18,
+                                ),
+                                label: const Text(
+                                  'Call',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF16155D),
+                                  elevation: 0,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                ),
+                              ),
                             ),
                           ),
-                        ),
+                        ],
                       ),
                     ],
                   ),
@@ -1642,6 +1690,26 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
                   ),
                 );
               }),
+            ),
+            const SizedBox(height: 24),
+            TextButton.icon(
+              onPressed: () async {
+                final bId = _getVal('_id');
+                final success = await ref.read(jobsProvider.notifier).resendOtp(bId, 'end');
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(success ? 'Resent Completion OTP to customer\'s mobile number!' : 'Failed to resend OTP'),
+                      backgroundColor: success ? Colors.green : Colors.red,
+                    ),
+                  );
+                }
+              },
+              icon: const Icon(Icons.send_to_mobile, size: 16, color: Color(0xFF16155D)),
+              label: const Text(
+                'Resend Completion OTP to Customer',
+                style: TextStyle(color: Color(0xFF16155D), fontWeight: FontWeight.bold, fontSize: 13),
+              ),
             ),
           ],
         ),

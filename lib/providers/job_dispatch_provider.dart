@@ -8,6 +8,7 @@ import '../services/notification_service.dart';
 import 'api_providers.dart';
 import 'auth_provider.dart';
 import 'provider_profile_provider.dart';
+import 'jobs_provider.dart';
 import 'package:geolocator/geolocator.dart';
 
 class JobRequestModel {
@@ -265,6 +266,25 @@ class JobDispatchNotifier extends StateNotifier<DispatchState> {
       } catch (_) {}
     });
 
+    _socket!.on('new_chat_message', (data) {
+      try {
+        final senderRole = data['senderRole'] ?? data['sender_role'];
+        if (senderRole != 'provider') {
+          final senderName = data['senderName'] ?? data['sender_name'] ?? 'Customer';
+          final text = data['text'] ?? data['message'] ?? 'Sent you a message';
+          final convId = data['conversation_id'] ?? data['conversationId'] ?? '';
+          final bookingId = data['booking_id'] ?? data['bookingId'] ?? convId.toString().replaceAll('CHAT-BKG-', '');
+          int notifId = (data['_id'] ?? data['id'] ?? DateTime.now().millisecondsSinceEpoch).toString().hashCode.abs() % 100000;
+          NotificationService.showNotification(
+            id: notifId,
+            title: 'New message from $senderName',
+            body: text,
+            payload: jsonEncode({'booking_id': bookingId, 'type': 'chat'}),
+          );
+        }
+      } catch (_) {}
+    });
+
     _socket!.onDisconnect((_) {
       state = state.copyWith(isConnecting: false);
     });
@@ -348,6 +368,7 @@ class JobDispatchNotifier extends StateNotifier<DispatchState> {
       );
       if (response.statusCode == 200) {
         state = state.copyWith(clearActiveJob: true);
+        _ref.read(jobsProvider.notifier).fetchAllJobs();
         return true;
       }
       return false;
@@ -365,6 +386,7 @@ class JobDispatchNotifier extends StateNotifier<DispatchState> {
       );
       if (response.statusCode == 200) {
         state = state.copyWith(clearActiveJob: true);
+        _ref.read(jobsProvider.notifier).fetchAllJobs();
         return true;
       }
       return false;

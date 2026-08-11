@@ -101,6 +101,38 @@ class ProviderProfileNotifier extends StateNotifier<ProfileState> {
     }
   }
 
+  Future<bool> updateBankDetails({
+    required String accountHolderName,
+    required String accountNumber,
+    required String ifscCode,
+    required String bankName,
+  }) async {
+    state = state.copyWith(status: ProfileStatus.loading);
+    try {
+      final response = await _apiClient.dio.post(
+        '/api/providers/bank-details',
+        data: {
+          'accountHolderName': accountHolderName,
+          'accountNumber': accountNumber,
+          'ifscCode': ifscCode,
+          'bankName': bankName,
+        },
+      );
+      if (response.statusCode == 200) {
+        await fetchProfile();
+        return true;
+      }
+      return false;
+    } on DioException catch (e) {
+      state = state.copyWith(
+        status: ProfileStatus.error,
+        errorMessage: e.response?.data['message'] ?? 'Failed to update bank details',
+      );
+      return false;
+    }
+  }
+
+
   Future<bool> addService({
     required List<String> subserviceIds,
     required double price,

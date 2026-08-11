@@ -307,6 +307,40 @@ class _AddCreditsScreenState extends ConsumerState<AddCreditsScreen> {
     );
   }
 
+  void _showFailureDialog(String reason) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: const [
+            Icon(Icons.error_outline, color: Colors.red, size: 28),
+            SizedBox(width: 8),
+            Text(
+              'Payment Failed',
+              style: TextStyle(fontWeight: FontWeight.bold, color: Colors.redAccent, fontSize: 18),
+            ),
+          ],
+        ),
+        content: Text(
+          reason.isNotEmpty ? reason : 'The payment transaction could not be completed. Please try again.',
+          style: const TextStyle(fontSize: 14, color: Colors.black87),
+        ),
+        actions: [
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF16155D),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _handlePayment() async {
     final int amountInRupees = _selectedAmount * 10;
     if (amountInRupees < 500) {
@@ -331,8 +365,11 @@ class _AddCreditsScreenState extends ConsumerState<AddCreditsScreen> {
       if (orderRes != null && orderRes['rzpOrder'] != null && orderRes['rzpOrder']['id'] != null) {
         orderId = orderRes['rzpOrder']['id'].toString();
       } else {
-        // Fallback local test order ID if backend order creation returned error/null
-        orderId = 'order_mock_${DateTime.now().millisecondsSinceEpoch}';
+        setState(() => _isLoading = false);
+        if (mounted) {
+          _showFailureDialog('Failed to create recharge order on payment server.');
+        }
+        return;
       }
 
       setState(() {
@@ -346,12 +383,7 @@ class _AddCreditsScreenState extends ConsumerState<AddCreditsScreen> {
         _isLoading = false;
       });
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(e.toString().replaceAll('Exception: ', '')),
-            backgroundColor: Colors.red,
-          ),
-        );
+        _showFailureDialog(e.toString().replaceAll('Exception: ', ''));
       }
     }
   }
@@ -380,12 +412,7 @@ class _AddCreditsScreenState extends ConsumerState<AddCreditsScreen> {
       );
     } else {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Payment cancelled.'),
-            backgroundColor: Colors.orange,
-          ),
-        );
+        _showFailureDialog(paymentResult?['message'] ?? 'Payment transaction failed or cancelled.');
       }
       setState(() => _isLoading = false);
     }

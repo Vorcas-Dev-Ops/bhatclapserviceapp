@@ -1,13 +1,16 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:partner_app/providers/wallet_provider.dart';
 import 'package:partner_app/providers/provider_profile_provider.dart';
-import 'package:partner_app/screens/finance/loans_screen.dart';
+import 'package:partner_app/providers/api_providers.dart';
 import 'package:partner_app/screens/finance/credits_screen.dart';
 import 'package:partner_app/screens/auth/bank_details_screen.dart';
 import 'package:partner_app/screens/notifications/notifications_screen.dart';
 import 'package:partner_app/screens/profile/subscription_screen.dart';
 import 'package:partner_app/providers/notification_provider.dart';
+import 'package:partner_app/screens/leads/lead_marketplace_screen.dart';
+import 'package:partner_app/widgets/razorpay_gateway_modal.dart';
 
 class MoneyScreen extends ConsumerStatefulWidget {
   const MoneyScreen({super.key});
@@ -17,239 +20,205 @@ class MoneyScreen extends ConsumerStatefulWidget {
 }
 
 class _MoneyScreenState extends ConsumerState<MoneyScreen> {
-  final TextEditingController _amountController = TextEditingController();
+  bool _isLoading = true;
+  Map<String, dynamic>? _earningsData;
+  List<dynamic> _settlements = [];
+  double _todayEarnings = 0.0;
+  int _todayJobs = 0;
+  double _monthEarnings = 0.0;
+  int _monthJobs = 0;
+  double _netEarningsTotal = 0.0;
+  double _serviceValueTotal = 0.0;
+  double _commissionTotal = 0.0;
+  double _gstTotal = 0.0;
+  double _codDueBalance = 0.0;
+  bool _isRemittingCod = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.read(walletProvider.notifier).fetchWalletAndReviews();
-      ref.read(providerProfileProvider.notifier).fetchProfile();
+      _fetchData();
     });
   }
 
-  @override
-  void dispose() {
-    _amountController.dispose();
-    super.dispose();
+  Future<void> _fetchData() async {
+    setState(() => _isLoading = true);
+    try {
+      final apiClient = ref.read(apiClientProvider);
+      await Future.wait([
+        ref.read(walletProvider.notifier).fetchWalletAndReviews(),
+        ref.read(providerProfileProvider.notifier).fetchProfile(),
+      ]);
+
+      try {
+        final res = await apiClient.dio.get('/api/providers/earnings-payouts');
+        if (res.statusCode == 200) {
+          final data = res.data;
+          _earningsData = data;
+          _codDueBalance = (data['codDues'] as num?)?.toDouble() ?? 0.0;
+          _settlements = data['settlementHistory'] is List ? data['settlementHistory'] : [];
+        }
+      } catch (_) {}
+
+      final walletState = ref.read(walletProvider);
+      final activeList = _settlements.isNotEmpty ? _settlements : walletState.transactions;
+      _calculateAnalytics(activeList);
+    } catch (_) {
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
-  void _showWithdrawDialog(double balance) {
-    final profile = ref.read(providerProfileProvider).profileData;
-    final bankDetails = profile?['bank_details'] as Map<String, dynamic>?;
-    final hasBank = bankDetails != null && bankDetails['bank_name'] != null && bankDetails['bank_name'].toString().isNotEmpty;
+  void _calculateAnalytics(List<dynamic> items) {
+    final now = DateTime.now();
+    final startOfToday = DateTime(now.year, now.month, now.day);
+    final startOfMonth = DateTime(now.year, now.month, 1);
 
-    if (!hasBank) {
-      showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          title: const Text(
-            'Link Bank Account',
-            style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF16155D)),
-          ),
-          content: const Text('Please link your bank account first to request withdrawals.'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel', style: TextStyle(color: Colors.black54)),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const BankDetailsScreen(isEditing: true)),
-                ).then((_) {
-                  ref.read(providerProfileProvider.notifier).fetchProfile();
-                });
-              },
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF16155D)),
-              child: const Text('Link Bank Account', style: TextStyle(color: Colors.white)),
-            ),
-          ],
-        ),
-      );
-      return;
+    double todayNet = 0.0;
+    int todayCount = 0;
+    double monthNet = 0.0;
+    int monthCount = 0;
+    double netTotal = 0.0;
+    double grossTotal = 0.0;
+    double commTotal = 0.0;
+    double gstSum = 0.0;
+
+    for (var s in items) {
+      if (s is! Map) continue;
+      final status = (s['status'] ?? '').toString().toLowerCase();
+      
+      // Skip explicitly failed/cancelled items
+      if (status == 'failed' || status == 'cancelled' || status == 'rejected') {
+        continue;
+      }
+
+      final double rawAmount = (s['net_payable_amount'] as num?)?.toDouble() ?? 
+                               (s['gross_amount'] as num?)?.toDouble() ?? 
+                               (s['amount'] as num?)?.toDouble() ?? 
+                               (s['payable_amount'] as num?)?.toDouble() ?? 0.0;
+      
+      if (rawAmount <= 0) continue;
+
+      final gross = (s['gross_amount'] as num?)?.toDouble() ?? rawAmount;
+      final comm = (s['commission_amount'] as num?)?.toDouble() ?? (gross * 0.10);
+      final gst = (s['gst_on_commission'] as num?)?.toDouble() ?? (comm * 0.18);
+      final net = (s['net_payable_amount'] as num?)?.toDouble() ?? (gross - comm - gst);
+
+      final createdAtRaw = s['createdAt']?.toString() ?? s['created_at']?.toString() ?? s['timestamp']?.toString();
+      final dt = createdAtRaw != null ? DateTime.tryParse(createdAtRaw) : null;
+
+      netTotal += net;
+      grossTotal += gross;
+      commTotal += comm;
+      gstSum += gst;
+
+      if (dt != null) {
+        if (dt.isAfter(startOfToday) || dt.isAtSameMomentAs(startOfToday)) {
+          todayNet += net;
+          todayCount++;
+        }
+        if (dt.isAfter(startOfMonth) || dt.isAtSameMomentAs(startOfMonth)) {
+          monthNet += net;
+          monthCount++;
+        }
+      } else {
+        // Fallback when date string is missing
+        todayNet += net;
+        todayCount++;
+        monthNet += net;
+        monthCount++;
+      }
     }
 
-    final bankName = bankDetails['bank_name'].toString();
-    final accNum = bankDetails['account_number']?.toString() ?? bankDetails['account_number_last4']?.toString() ?? '****';
-    final last4 = accNum.length >= 4 ? accNum.substring(accNum.length - 4) : accNum;
+    _todayEarnings = todayNet;
+    _todayJobs = todayCount;
+    _monthEarnings = monthNet;
+    _monthJobs = monthCount;
+    _netEarningsTotal = netTotal;
+    _serviceValueTotal = grossTotal;
+    _commissionTotal = commTotal;
+    _gstTotal = gstSum;
+  }
 
-    _amountController.clear();
-    showDialog(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) {
-          return AlertDialog(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-            title: const Text(
-              'Withdraw Funds to Bank',
-              style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF16155D)),
-            ),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFEFF1FE),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.account_balance, color: Color(0xFF16155D), size: 20),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          '$bankName •••• $last4',
-                          style: const TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF16155D),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  'Available Balance: ₹${balance.toStringAsFixed(2)}',
-                  style: const TextStyle(fontSize: 13, color: Colors.black54, fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _amountController,
-                  keyboardType: TextInputType.number,
-                  decoration: InputDecoration(
-                    labelText: 'Withdrawal Amount (₹)',
-                    hintText: 'Enter amount to withdraw',
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                    prefixIcon: const Icon(Icons.currency_rupee, size: 20),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    _buildPresetChip('₹500', 500, balance, setDialogState),
-                    _buildPresetChip('₹1,000', 1000, balance, setDialogState),
-                    _buildPresetChip('₹2,000', 2000, balance, setDialogState),
-                    _buildPresetChip('Max', balance, balance, setDialogState),
-                  ],
-                ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Cancel', style: TextStyle(color: Colors.black54)),
-              ),
-              ElevatedButton(
-                onPressed: () async {
-                  final amt = double.tryParse(_amountController.text) ?? 0.0;
-                  final navigator = Navigator.of(context);
-                  final messenger = ScaffoldMessenger.of(context);
+  Future<void> _handleRemitCOD() async {
+    if (_codDueBalance <= 0 || _isRemittingCod) return;
 
-                  if (amt <= 0.0) {
-                    messenger.showSnackBar(
-                      const SnackBar(content: Text('Please enter a valid withdrawal amount'), backgroundColor: Colors.red),
-                    );
-                    return;
-                  }
-                  if (amt > balance) {
-                    messenger.showSnackBar(
-                      SnackBar(content: Text('Amount exceeds available balance (₹${balance.toStringAsFixed(2)})'), backgroundColor: Colors.red),
-                    );
-                    return;
-                  }
+    setState(() => _isRemittingCod = true);
+    try {
+      final apiClient = ref.read(apiClientProvider);
+      final res = await apiClient.dio.post('/api/providers/wallet/remit-cod', data: {
+        'amount': _codDueBalance,
+      });
 
-                  final success = await ref.read(walletProvider.notifier).withdrawMoney(amt);
-                  if (!mounted) return;
-
-                  if (success) {
-                    await ref.read(walletProvider.notifier).requestPayout(amt);
-                    if (!mounted) return;
-                    navigator.pop();
-                    _showPayoutSuccessDialog(bankName, last4, amt);
-
-                    ref.read(walletProvider.notifier).fetchWalletAndReviews();
-                    ref.read(providerProfileProvider.notifier).fetchProfile();
-                  } else {
-                    messenger.showSnackBar(
-                      const SnackBar(content: Text('Failed to process withdrawal request'), backgroundColor: Colors.red),
-                    );
-                  }
-                },
-                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF16155D)),
-                child: const Text('Withdraw', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-              ),
-            ],
+      if (mounted && (res.statusCode == 200 || res.statusCode == 201)) {
+        final data = res.data;
+        if (data['method'] == 'wallet') {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(data['message'] ?? 'COD dues remitted successfully using wallet credit!'), backgroundColor: Colors.green),
           );
-        },
-      ),
-    );
-  }
+          _fetchData();
+          return;
+        }
 
-  void _showPayoutSuccessDialog(String bankName, String last4, double amt) {
-    if (!mounted) return;
-    showDialog(
-      context: context,
-      builder: (dialogCtx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Row(
-          children: const [
-            Icon(Icons.check_circle, color: Colors.green, size: 28),
-            SizedBox(width: 10),
-            Text('Payout Requested'),
-          ],
-        ),
-        content: Text(
-          'Your withdrawal request of ₹${amt.toStringAsFixed(2)} has been submitted successfully.\n\nFunds will be credited to $bankName (•••• $last4).',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogCtx),
-            child: const Text('Done', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF16155D))),
-          ),
-        ],
-      ),
-    );
-  }
+        if (data['method'] == 'online' && data['razorpayOrder'] != null) {
+          final rzpOrder = data['razorpayOrder'];
+          final orderId = rzpOrder['id']?.toString() ?? '';
+          final keyId = data['key_id']?.toString() ?? 'rzp_test_mock';
+          final amount = (data['amount'] as num?)?.toDouble() ?? _codDueBalance;
 
-  Widget _buildPresetChip(String label, double amount, double maxBalance, StateSetter setDialogState) {
-    return GestureDetector(
-      onTap: () {
-        setDialogState(() {
-          final targetAmt = amount > maxBalance ? maxBalance : amount;
-          _amountController.text = targetAmt.toStringAsFixed(0);
-        });
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        decoration: BoxDecoration(
-          color: const Color(0xFFEFF1FE),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: const Color(0xFF16155D).withValues(alpha: 0.2)),
-        ),
-        child: Text(
-          label,
-          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF16155D)),
-        ),
-      ),
-    );
+          final paymentResult = await showModalBottomSheet<Map<String, dynamic>>(
+            context: context,
+            isScrollControlled: true,
+            isDismissible: false,
+            enableDrag: false,
+            backgroundColor: Colors.transparent,
+            builder: (context) => PartnerRazorpayGatewayModalSheet(
+              orderId: orderId,
+              keyId: keyId,
+              amount: amount,
+              title: 'COD Dues Remittance',
+            ),
+          );
+
+          if (paymentResult != null && paymentResult['success'] == true && mounted) {
+            final paymentId = paymentResult['razorpay_payment_id'] ?? paymentResult['payment_id'];
+            final signature = paymentResult['razorpay_signature'] ?? paymentResult['signature'];
+
+            final verifyRes = await apiClient.dio.post('/api/providers/wallet/remit-cod/verify', data: {
+              'razorpay_order_id': orderId,
+              'razorpay_payment_id': paymentId,
+              'razorpay_signature': signature,
+              'amount': amount,
+            });
+
+            if (verifyRes.statusCode == 200 && mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('COD dues remitted successfully! Lead dispatch unblocked.'), backgroundColor: Colors.green),
+              );
+              _fetchData();
+            }
+          }
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to process COD remittance: $e'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isRemittingCod = false);
+    }
   }
 
   void _showTransactionDetailsSheet(Map<String, dynamic> tx) {
-    final double amt = (tx['amount'] as num?)?.toDouble() ?? 0.0;
-    final type = (tx['type'] ?? 'debit').toString();
-    final desc = (tx['description'] ?? 'Wallet Transfer').toString();
-    final refId = (tx['referenceId'] ?? tx['_id'] ?? 'N/A').toString();
-    final status = (tx['status'] ?? 'success').toString();
-    final balanceAfter = tx['balanceAfter'] != null ? (tx['balanceAfter'] as num).toDouble() : null;
+    final double amt = (tx['net_payable_amount'] as num?)?.toDouble() ?? (tx['gross_amount'] as num?)?.toDouble() ?? (tx['amount'] as num?)?.toDouble() ?? 0.0;
+    final gross = (tx['gross_amount'] as num?)?.toDouble();
+    final comm = (tx['commission_amount'] as num?)?.toDouble();
+    final type = (tx['payment_type'] ?? tx['type'] ?? 'online').toString();
+    final desc = tx['booking_id'] != null ? 'Booking #${tx['booking_id']}' : (tx['description'] ?? 'Job Settlement').toString();
+    final status = (tx['status'] ?? 'paid').toString();
     final createdAtRaw = tx['createdAt']?.toString();
     final createdAt = createdAtRaw != null ? DateTime.tryParse(createdAtRaw) : null;
     final dateString = createdAt != null
@@ -279,21 +248,21 @@ class _MoneyScreenState extends ConsumerState<MoneyScreen> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 const Text(
-                  'Transaction Details',
+                  'Settlement Details',
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1C1F3E)),
                 ),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
-                    color: status == 'success' ? Colors.green.shade50 : Colors.amber.shade50,
+                    color: status == 'paid' || status == 'cod_settled' ? Colors.green.shade50 : Colors.blue.shade50,
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: Text(
-                    status.toUpperCase(),
+                    status.replaceAll('_', ' ').toUpperCase(),
                     style: TextStyle(
                       fontSize: 10,
                       fontWeight: FontWeight.bold,
-                      color: status == 'success' ? Colors.green.shade700 : Colors.amber.shade800,
+                      color: status == 'paid' || status == 'cod_settled' ? Colors.green.shade700 : Colors.blue.shade700,
                     ),
                   ),
                 ),
@@ -302,11 +271,11 @@ class _MoneyScreenState extends ConsumerState<MoneyScreen> {
             const SizedBox(height: 20),
             Center(
               child: Text(
-                '${type == 'credit' ? '+' : '-'}₹${amt.toStringAsFixed(2)}',
+                '+₹${amt.toStringAsFixed(2)}',
                 style: TextStyle(
                   fontSize: 32,
                   fontWeight: FontWeight.bold,
-                  color: type == 'credit' ? Colors.green.shade700 : const Color(0xFF1C1F3E),
+                  color: Colors.green.shade700,
                 ),
               ),
             ),
@@ -320,10 +289,11 @@ class _MoneyScreenState extends ConsumerState<MoneyScreen> {
             const SizedBox(height: 24),
             const Divider(),
             const SizedBox(height: 12),
-            _buildDetailRow('Transaction Date', dateString),
-            _buildDetailRow('Reference ID', refId),
-            if (balanceAfter != null) _buildDetailRow('Balance After', '₹${balanceAfter.toStringAsFixed(2)}'),
-            _buildDetailRow('Transaction Type', type.toUpperCase()),
+            if (gross != null) _buildDetailRow('Gross Service Value', '₹${gross.toStringAsFixed(2)}'),
+            if (comm != null) _buildDetailRow('Platform Fee (10%)', '-₹${comm.toStringAsFixed(2)}'),
+            _buildDetailRow('Net Earnings', '₹${amt.toStringAsFixed(2)}'),
+            _buildDetailRow('Payment Mode', type.toUpperCase()),
+            _buildDetailRow('Date', dateString),
             const SizedBox(height: 16),
           ],
         ),
@@ -382,7 +352,7 @@ class _MoneyScreenState extends ConsumerState<MoneyScreen> {
     );
   }
 
-  Widget _buildTopBar(double balance, int credits, int leadCount) {
+  Widget _buildTopBar(int credits, int leadCount) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 12.0),
       child: Row(
@@ -508,9 +478,10 @@ class _MoneyScreenState extends ConsumerState<MoneyScreen> {
     );
   }
 
-  Widget _buildBalanceCard(double balance) {
+  // Top Earnings & Direct Settlement Card (Replacing Manual Withdraw Card)
+  Widget _buildEarningsSummaryCard() {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 12.0),
+      padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 8.0),
       child: Container(
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
@@ -518,7 +489,7 @@ class _MoneyScreenState extends ConsumerState<MoneyScreen> {
           borderRadius: BorderRadius.circular(20),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withAlpha(8),
+              color: Colors.black.withAlpha(12),
               blurRadius: 12,
               offset: const Offset(0, 4),
             )
@@ -527,186 +498,51 @@ class _MoneyScreenState extends ConsumerState<MoneyScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Wallet Balance',
-              style: TextStyle(color: Colors.white70, fontSize: 14),
-            ),
-            const SizedBox(height: 8),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  '₹${balance.toStringAsFixed(2)}',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 32,
-                    fontWeight: FontWeight.bold,
-                  ),
+                const Text(
+                  'Net Settlement Earnings',
+                  style: TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w600),
                 ),
-                ElevatedButton(
-                  onPressed: () => _showWithdrawDialog(balance),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.white,
-                    foregroundColor: const Color(0xFF16155D),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF10B981).withAlpha(40),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFF6EE7B7), width: 1),
                   ),
-                  child: const Text('Withdraw', style: TextStyle(fontWeight: FontWeight.bold)),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: const [
+                      Icon(Icons.bolt, color: Color(0xFF34D399), size: 12),
+                      SizedBox(width: 3),
+                      Text(
+                        'Direct Bank Payout',
+                        style: TextStyle(color: Color(0xFF34D399), fontSize: 10, fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildAlertBanner() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 8.0),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        decoration: BoxDecoration(
-          color: const Color(0xFFEFF1FE),
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Row(
-          children: const [
-            Icon(
-              Icons.info_outline,
-              color: Color(0xFF16155D),
-              size: 22,
-            ),
-            SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                'Request manual payouts anytime to settle directly to your bank account.',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFF16155D),
-                ),
+            const SizedBox(height: 8),
+            Text(
+              '₹${_netEarningsTotal.toStringAsFixed(2)}',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 32,
+                fontWeight: FontWeight.bold,
               ),
             ),
+            const SizedBox(height: 10),
+            const Text(
+              'All completed job earnings are automatically settled directly to your verified bank account.',
+              style: TextStyle(color: Colors.white60, fontSize: 11, height: 1.3),
+            ),
           ],
         ),
       ),
-    );
-  }
-
-  Widget _buildTransfersSection(List<dynamic> transactions) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 24.0, vertical: 12.0),
-          child: Text(
-            'Recent Transactions',
-            style: TextStyle(
-              fontSize: 17,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF1C1F3E),
-            ),
-          ),
-        ),
-        if (transactions.isEmpty)
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 24.0, vertical: 8.0),
-            child: Text(
-              'No recent transactions.',
-              style: TextStyle(color: Colors.black38, fontSize: 13),
-            ),
-          )
-        else
-          SizedBox(
-            height: 124,
-            child: ListView.builder(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 24.0),
-              itemCount: transactions.length,
-              itemBuilder: (context, index) {
-                final tx = transactions[index];
-                final double amt = (tx['amount'] as num?)?.toDouble() ?? 0.0;
-                final type = tx['type'] ?? 'debit';
-                final desc = tx['description'] ?? 'Transfer';
-                
-                return GestureDetector(
-                  onTap: () => _showTransactionDetailsSheet(tx is Map<String, dynamic> ? tx : Map<String, dynamic>.from(tx)),
-                  child: Container(
-                    width: 165,
-                    margin: const EdgeInsets.only(right: 16),
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(16),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withAlpha(3),
-                          blurRadius: 8,
-                          offset: const Offset(0, 3),
-                        )
-                      ],
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              '₹${amt.toStringAsFixed(0)}',
-                              style: const TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFF1C1F3E),
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              desc,
-                              style: const TextStyle(
-                                fontSize: 11,
-                                color: Colors.black38,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ],
-                        ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: type == 'credit' ? const Color(0xFFE8F5E9) : const Color(0xFFFFEBEE),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                type == 'credit' ? Icons.check_circle_outline : Icons.remove_circle_outline,
-                                size: 12,
-                                color: type == 'credit' ? const Color(0xFF2E7D32) : Colors.red,
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                type == 'credit' ? 'Earned' : 'Debited',
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
-                                  color: type == 'credit' ? const Color(0xFF2E7D32) : Colors.red,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-      ],
     );
   }
 
@@ -747,13 +583,34 @@ class _MoneyScreenState extends ConsumerState<MoneyScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'Linked Bank Account',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF1C1F3E),
-                    ),
+                  Row(
+                    children: [
+                      const Text(
+                        'Linked Bank Account',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF1C1F3E),
+                        ),
+                      ),
+                      if (hasBank) ...[
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.green.shade100,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(
+                            children: const [
+                              Icon(Icons.verified, size: 10, color: Colors.green),
+                              SizedBox(width: 2),
+                              Text('Verified', style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.green)),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                   const SizedBox(height: 4),
                   Text(
@@ -775,7 +632,7 @@ class _MoneyScreenState extends ConsumerState<MoneyScreen> {
                   context,
                   MaterialPageRoute(builder: (context) => const BankDetailsScreen(isEditing: true)),
                 ).then((_) {
-                  ref.read(providerProfileProvider.notifier).fetchProfile();
+                  _fetchData();
                 });
               },
               child: Text(
@@ -789,6 +646,270 @@ class _MoneyScreenState extends ConsumerState<MoneyScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  // Outstanding COD Dues Banner (If provider collected cash)
+  Widget _buildCodDuesBanner() {
+    if (_codDueBalance <= 0) return const SizedBox.shrink();
+
+    final bool isNearThreshold = _codDueBalance >= 1500;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 8.0),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: isNearThreshold
+                ? [const Color(0xFF4A0E17), const Color(0xFF1F080C)]
+                : [const Color(0xFF1E1035), const Color(0xFF16155D)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withAlpha(15),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            )
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: isNearThreshold ? Colors.red.withAlpha(50) : Colors.purple.withAlpha(50),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: isNearThreshold ? Colors.redAccent : Colors.purpleAccent, width: 1),
+                  ),
+                  child: Text(
+                    isNearThreshold ? 'ACTION REQUIRED • NEAR BLOCK THRESHOLD' : 'OUTSTANDING COD COLLECTED',
+                    style: TextStyle(
+                      fontSize: 9,
+                      fontWeight: FontWeight.w900,
+                      color: isNearThreshold ? Colors.redAccent : Colors.purpleAccent,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Cash Collected from Customer',
+                      style: TextStyle(color: Colors.white70, fontSize: 11),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '₹${_codDueBalance.toStringAsFixed(2)}',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 26,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+                ElevatedButton.icon(
+                  onPressed: _isRemittingCod ? null : _handleRemitCOD,
+                  icon: _isRemittingCod
+                      ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      : const Icon(Icons.payment, size: 16, color: Colors.white),
+                  label: const Text('Remit Dues', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF4CAF50),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Financial Breakdown Card (Gross -> Commission -> GST -> Net)
+  Widget _buildFinancialBreakdownCard() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 8.0),
+      child: Container(
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withAlpha(5),
+              blurRadius: 8,
+              offset: const Offset(0, 3),
+            )
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Earnings & Deductions Summary',
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF1C1F3E)),
+            ),
+            const SizedBox(height: 14),
+            _buildBreakdownRow('Gross Service Value', '₹${_serviceValueTotal.toStringAsFixed(2)}', isBold: true),
+            const Divider(height: 16),
+            _buildBreakdownRow('Platform Commission (10%)', '-₹${_commissionTotal.toStringAsFixed(2)}', color: Colors.orange.shade800),
+            _buildBreakdownRow('GST on Commission (18%)', '-₹${_gstTotal.toStringAsFixed(2)}', color: Colors.red.shade700),
+            const Divider(height: 16),
+            _buildBreakdownRow('Net Payable Earnings', '₹${_netEarningsTotal.toStringAsFixed(2)}', isBold: true, color: Colors.green.shade800, fontSize: 15),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBreakdownRow(String label, String value, {bool isBold = false, Color? color, double fontSize = 13}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: TextStyle(fontSize: fontSize, color: Colors.grey.shade700, fontWeight: isBold ? FontWeight.bold : FontWeight.normal)),
+          Text(value, style: TextStyle(fontSize: fontSize, fontWeight: isBold ? FontWeight.bold : FontWeight.w600, color: color ?? const Color(0xFF1C1F3E))),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTransfersSection(List<dynamic> transactions) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 24.0, vertical: 12.0),
+          child: Text(
+            'Recent Settlements',
+            style: TextStyle(
+              fontSize: 17,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF1C1F3E),
+            ),
+          ),
+        ),
+        if (transactions.isEmpty)
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 24.0, vertical: 8.0),
+            child: Text(
+              'No recent settlements found.',
+              style: TextStyle(color: Colors.black38, fontSize: 13),
+            ),
+          )
+        else
+          SizedBox(
+            height: 124,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 24.0),
+              itemCount: transactions.length,
+              itemBuilder: (context, index) {
+                final tx = transactions[index];
+                if (tx is! Map) return const SizedBox.shrink();
+
+                final Map<String, dynamic> txMap = Map<String, dynamic>.from(tx);
+                final double amt = (txMap['net_payable_amount'] as num?)?.toDouble() ?? (txMap['gross_amount'] as num?)?.toDouble() ?? (txMap['amount'] as num?)?.toDouble() ?? 0.0;
+                final type = txMap['payment_type'] ?? txMap['type'] ?? 'online';
+                final desc = txMap['booking_id'] != null ? 'Booking #${txMap['booking_id']}' : (txMap['description'] ?? 'Job Settlement').toString();
+                final status = (txMap['status'] ?? 'paid').toString();
+                
+                return GestureDetector(
+                  onTap: () => _showTransactionDetailsSheet(txMap),
+                  child: Container(
+                    width: 170,
+                    margin: const EdgeInsets.only(right: 14),
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withAlpha(4),
+                          blurRadius: 8,
+                          offset: const Offset(0, 3),
+                        )
+                      ],
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '₹${amt.toStringAsFixed(0)}',
+                              style: const TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF1C1F3E),
+                              ),
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              desc,
+                              style: const TextStyle(
+                                fontSize: 11,
+                                color: Colors.black45,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: status == 'paid' || status == 'cod_settled' ? const Color(0xFFE8F5E9) : const Color(0xFFE3F2FD),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                status == 'paid' || status == 'cod_settled' ? Icons.check_circle_outline : Icons.schedule,
+                                size: 12,
+                                color: status == 'paid' || status == 'cod_settled' ? const Color(0xFF2E7D32) : Colors.blue.shade700,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                status == 'paid' || status == 'cod_settled' ? 'Settled' : 'Pending',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                  color: status == 'paid' || status == 'cod_settled' ? const Color(0xFF2E7D32) : Colors.blue.shade700,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+      ],
     );
   }
 
@@ -807,77 +928,6 @@ class _MoneyScreenState extends ConsumerState<MoneyScreen> {
             ),
           ),
           const SizedBox(height: 12),
-          Padding(
-            padding: const EdgeInsets.only(bottom: 12.0),
-            child: GestureDetector(
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const LoansScreen()),
-                );
-              },
-              child: Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withAlpha(3),
-                      blurRadius: 8,
-                      offset: const Offset(0, 3),
-                    )
-                  ],
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: const BoxDecoration(
-                        color: Color(0xFFEFF1FE),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.account_balance_outlined,
-                        color: Color(0xFF16155D),
-                        size: 22,
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: const [
-                          Text(
-                            'Loans',
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFF1C1F3E),
-                            ),
-                          ),
-                          SizedBox(height: 4),
-                          Text(
-                            'Not eligible to apply, click to learn more',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.red,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const Icon(
-                      Icons.chevron_right,
-                      color: Colors.black38,
-                      size: 24,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
           Padding(
             padding: const EdgeInsets.only(bottom: 12.0),
             child: GestureDetector(
@@ -955,7 +1005,7 @@ class _MoneyScreenState extends ConsumerState<MoneyScreen> {
               onTap: () {
                 Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (context) => const SubscriptionScreen()),
+                  MaterialPageRoute(builder: (context) => const LeadMarketplaceScreen()),
                 );
               },
               child: Container(
@@ -1025,11 +1075,91 @@ class _MoneyScreenState extends ConsumerState<MoneyScreen> {
     );
   }
 
+  Widget _buildKpiRow() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 4.0),
+      child: Row(
+        children: [
+          Expanded(
+            child: Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withAlpha(4),
+                    blurRadius: 8,
+                    offset: const Offset(0, 3),
+                  )
+                ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    "TODAY'S EARNINGS",
+                    style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.grey, letterSpacing: 0.5),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    '₹${_todayEarnings.toStringAsFixed(2)}',
+                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1C1F3E)),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '$_todayJobs Jobs',
+                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.green.shade700),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withAlpha(4),
+                    blurRadius: 8,
+                    offset: const Offset(0, 3),
+                  )
+                ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    "THIS MONTH",
+                    style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.grey, letterSpacing: 0.5),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    '₹${_monthEarnings.toStringAsFixed(2)}',
+                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1C1F3E)),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '$_monthJobs Jobs',
+                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.indigo.shade700),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final walletState = ref.watch(walletProvider);
     final profileState = ref.watch(providerProfileProvider);
-    final isLoading = walletState.status == WalletStatus.loading || profileState.status == ProfileStatus.loading;
 
     final profile = profileState.profileData;
     int creditsVal = 0;
@@ -1043,24 +1173,23 @@ class _MoneyScreenState extends ConsumerState<MoneyScreen> {
 
     return Column(
       children: [
-        _buildTopBar(walletState.balance, creditsVal, walletState.leadBalance),
+        _buildTopBar(creditsVal, walletState.leadBalance),
         const SizedBox(height: 8),
         Expanded(
-          child: isLoading
+          child: _isLoading
               ? const Center(child: CircularProgressIndicator(color: Color(0xFF16155D)))
               : RefreshIndicator(
-                  onRefresh: () async {
-                    await ref.read(walletProvider.notifier).fetchWalletAndReviews();
-                    await ref.read(providerProfileProvider.notifier).fetchProfile();
-                  },
+                  onRefresh: _fetchData,
                   child: SingleChildScrollView(
                     physics: const AlwaysScrollableScrollPhysics(),
                     child: Column(
                       children: [
-                        _buildBalanceCard(walletState.balance),
+                        _buildEarningsSummaryCard(),
+                        _buildKpiRow(),
                         _buildBankAccountCard(profileState.profileData?['bank_details']),
-                        _buildAlertBanner(),
-                        _buildTransfersSection(walletState.transactions),
+                        _buildCodDuesBanner(),
+                        _buildFinancialBreakdownCard(),
+                        _buildTransfersSection(_settlements.isNotEmpty ? _settlements : walletState.transactions),
                         const SizedBox(height: 16),
                         _buildExploreMore(context, creditsVal),
                         const SizedBox(height: 24),

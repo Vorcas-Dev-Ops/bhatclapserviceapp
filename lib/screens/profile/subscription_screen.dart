@@ -338,9 +338,7 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
     }
 
     if (razorpayOrderId.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed to initialize payment with server. Please try again.')),
-      );
+      _showFailureDialog('Failed to initialize payment order with server. Please try again.');
       return;
     }
 
@@ -368,15 +366,18 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
       _razorpay.open(options);
       result = await _razorpayCompleter!.future;
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Payment initiation failed: $e')),
-      );
+      _showFailureDialog(e.toString());
       return;
     }
 
     if (result != null && result['success'] == true) {
-      final rzpPaymentId = result['payment_id'] ?? 'pay_${DateTime.now().millisecondsSinceEpoch}';
+      final rzpPaymentId = result['payment_id'] ?? result['razorpay_payment_id'];
       final rzpSignature = result['razorpay_signature'] ?? '';
+
+      if (rzpPaymentId == null || rzpPaymentId.toString().isEmpty) {
+        _showFailureDialog('Invalid payment ID received from gateway.');
+        return;
+      }
 
       // 2. Call Backend to verify payment and activate package in MongoDB
       try {
@@ -419,7 +420,43 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
           ),
         );
       }
+    } else if (mounted) {
+      _showFailureDialog(result?['message'] ?? 'Subscription payment failed or was cancelled.');
     }
+  }
+
+  void _showFailureDialog(String reason) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: const [
+            Icon(Icons.error_outline, color: Colors.red, size: 28),
+            SizedBox(width: 8),
+            Text(
+              'Payment Failed',
+              style: TextStyle(fontWeight: FontWeight.bold, color: Colors.redAccent, fontSize: 18),
+            ),
+          ],
+        ),
+        content: Text(
+          reason.isNotEmpty ? reason : 'The payment transaction could not be completed. Please try again.',
+          style: const TextStyle(fontSize: 14, color: Colors.black87),
+        ),
+        actions: [
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF1E1B4B),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
   }
 
   @override

@@ -12,6 +12,7 @@ import 'package:partner_app/providers/notification_provider.dart';
 import 'package:partner_app/screens/notifications/notifications_screen.dart';
 import 'package:partner_app/screens/jobs/jobs_screen.dart';
 import 'package:partner_app/screens/jobs/job_details_screen.dart';
+import 'package:partner_app/screens/chat/partner_chat_screen.dart';
 import 'package:partner_app/screens/finance/money_screen.dart';
 import 'package:partner_app/screens/finance/add_credits_screen.dart';
 import 'package:partner_app/screens/profile/profile_screen.dart';
@@ -61,7 +62,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       if (payload.startsWith('{')) {
         data = jsonDecode(payload);
       }
+      final type = data['type']?.toString();
       final bookingId = data['booking_id'] ?? data['bookingId'] ?? data['booking'] ?? data['request_id'];
+      if (type == 'chat' && bookingId != null && bookingId.toString().isNotEmpty && mounted) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => PartnerChatScreen(bookingId: bookingId.toString()),
+          ),
+        );
+        return;
+      }
       if (bookingId != null && bookingId.toString().isNotEmpty && mounted) {
         Navigator.push(
           context,
@@ -260,21 +271,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         ),
                       ),
                   ],
-                ),
-              ),
-              const SizedBox(width: 12),
-              // Siren Alert
-              Container(
-                width: 40,
-                height: 40,
-                decoration: const BoxDecoration(
-                  color: Color(0xFFFFEFF1),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.campaign_outlined,
-                  color: Colors.red,
-                  size: 22,
                 ),
               ),
             ],
@@ -673,20 +669,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   void _showDailyIncomeModal(BuildContext context, List<dynamic> todayBookings, double dailyIncome) {
-    final acceptedStatuses = [
-      'accepted',
-      'on_the_way',
-      'arrived',
-      'waiting_start_otp',
-      'in_progress',
-      'started',
-      'waiting_end_otp',
-      'completed'
-    ];
+    final completedStatuses = ['completed', 'finished'];
 
     final filteredTodayBookings = todayBookings.where((b) {
       final status = (b['status'] ?? '').toString().toLowerCase();
-      return acceptedStatuses.contains(status);
+      return completedStatuses.contains(status);
     }).toList();
 
     final onlineJobs = filteredTodayBookings.where((b) {
@@ -699,12 +686,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       return method.contains('cod') || method.contains('cash');
     }).toList();
 
-    double acceptedDailyTotal = 0;
+    double completedDailyNetTotal = 0;
     for (final b in filteredTodayBookings) {
-      final amt = (b['payable_amount'] as num?)?.toDouble() ?? (b['total_amount'] as num?)?.toDouble() ?? (b['amount'] as num?)?.toDouble() ?? 0.0;
-      acceptedDailyTotal += amt;
+      completedDailyNetTotal += _calculateNetJobIncome(b);
     }
-    final displayTotal = acceptedDailyTotal > 0 ? acceptedDailyTotal : dailyIncome;
+    final displayTotal = completedDailyNetTotal > 0 ? completedDailyNetTotal : dailyIncome;
 
     showModalBottomSheet(
       context: context,
@@ -748,9 +734,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            'Today\'s Total: ₹${displayTotal.toStringAsFixed(0)}',
+                            'Today\'s Net Income: ₹${displayTotal.toStringAsFixed(0)} (Platform Fee Deducted)',
                             style: const TextStyle(
-                              fontSize: 13,
+                              fontSize: 12,
                               color: Colors.green,
                               fontWeight: FontWeight.w600,
                             ),
@@ -795,6 +781,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
+  double _calculateNetJobIncome(dynamic booking) {
+    final grossAmt = (booking['payable_amount'] as num?)?.toDouble() ??
+                     (booking['total_amount'] as num?)?.toDouble() ??
+                     (booking['amount'] as num?)?.toDouble() ?? 0.0;
+
+    double platformFee = (booking['platform_fee'] as num?)?.toDouble() ??
+                         (booking['commission_fee'] as num?)?.toDouble() ??
+                         (booking['commission'] as num?)?.toDouble() ?? 0.0;
+
+    if (platformFee == 0.0 && grossAmt > 0) {
+      platformFee = grossAmt * 0.10; // Default 10% platform fee
+    }
+
+    final netAmt = grossAmt - platformFee;
+    return netAmt > 0 ? netAmt : 0.0;
+  }
+
   Widget _buildDailyIncomeJobsList(List<dynamic> jobs, {required bool isCod}) {
     if (jobs.isEmpty) {
       return Center(
@@ -808,7 +811,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ),
             const SizedBox(height: 12),
             Text(
-              isCod ? 'No Cash on Delivery (COD) jobs today' : 'No Online Payment jobs today',
+              isCod ? 'No completed Cash on Delivery (COD) jobs today' : 'No completed Online Payment jobs today',
               style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
             ),
           ],
@@ -825,7 +828,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         final subservice = job['subservice_id'] ?? {};
         final title = subservice['subservice_name'] ?? job['variant_name'] ?? 'Service';
         final bookingId = job['display_id'] ?? job['booking_id']?.toString() ?? job['_id']?.toString() ?? '';
-        final amt = (job['payable_amount'] as num?)?.toDouble() ?? (job['total_amount'] as num?)?.toDouble() ?? (job['amount'] as num?)?.toDouble() ?? 0.0;
+        final grossAmt = (job['payable_amount'] as num?)?.toDouble() ?? (job['total_amount'] as num?)?.toDouble() ?? (job['amount'] as num?)?.toDouble() ?? 0.0;
+        
+        double platformFee = (job['platform_fee'] as num?)?.toDouble() ?? (job['commission_fee'] as num?)?.toDouble() ?? (job['commission'] as num?)?.toDouble() ?? 0.0;
+        if (platformFee == 0.0 && grossAmt > 0) {
+          platformFee = grossAmt * 0.10;
+        }
+        final netAmt = _calculateNetJobIncome(job);
         final status = (job['status'] ?? 'completed').toString();
         final time = job['booking_time'] ?? 'Today';
 
@@ -857,20 +866,29 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                     ),
                     const SizedBox(height: 6),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: isCod ? Colors.orange.shade50 : Colors.green.shade50,
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Text(
-                        isCod ? 'Cash on Delivery (COD)' : 'Online Payment (Paid)',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                          color: isCod ? Colors.orange.shade800 : Colors.green.shade800,
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: isCod ? Colors.orange.shade50 : Colors.green.shade50,
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            isCod ? 'Cash on Delivery (COD)' : 'Online Payment (Paid)',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: isCod ? Colors.orange.shade800 : Colors.green.shade800,
+                            ),
+                          ),
                         ),
-                      ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Fee: -₹${platformFee.toStringAsFixed(0)}',
+                          style: TextStyle(fontSize: 11, color: Colors.red.shade700, fontWeight: FontWeight.w600),
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -879,20 +897,25 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   Text(
-                    '₹${amt.toStringAsFixed(0)}',
+                    '₹${netAmt.toStringAsFixed(0)}',
                     style: const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
                       color: Color(0xFF16155D),
                     ),
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Gross: ₹${grossAmt.toStringAsFixed(0)}',
+                    style: const TextStyle(fontSize: 10, color: Colors.black45),
+                  ),
+                  const SizedBox(height: 2),
                   Text(
                     status.toUpperCase(),
                     style: TextStyle(
                       fontSize: 10,
                       fontWeight: FontWeight.bold,
-                      color: status == 'completed' ? Colors.green.shade700 : Colors.blue.shade700,
+                      color: Colors.green.shade700,
                     ),
                   ),
                 ],
@@ -911,42 +934,31 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final jobsState = ref.watch(jobsProvider);
     final bookings = jobsState.bookings;
 
-    final acceptedStatuses = [
-      'accepted',
-      'on_the_way',
-      'arrived',
-      'waiting_start_otp',
-      'in_progress',
-      'started',
-      'waiting_end_otp',
-      'completed'
-    ];
+    final completedStatuses = ['completed', 'finished'];
 
-    // 1. Calculate Today's Jobs (ONLY accepted/active/completed by provider)
+    // 1. Calculate Today's Jobs (ONLY completed jobs today)
     final todayBookings = bookings.where((b) {
       final scheduledAt = b['scheduled_at'] ?? b['createdAt'] ?? b['date'];
       final status = (b['status'] ?? '').toString().toLowerCase();
-      if (!acceptedStatuses.contains(status)) return false;
+      if (!completedStatuses.contains(status)) return false;
       return _isTodayDate(scheduledAt);
     }).toList();
 
     int todaysJobsCount = todayBookings.length;
 
-    // 2. Calculate Daily Income (ONLY accepted/active/completed by provider)
+    // 2. Calculate Daily Net Income (ONLY completed jobs today with platform fee deducted)
     double dailyIncome = 0;
     for (final b in todayBookings) {
-      final amt = (b['payable_amount'] as num?)?.toDouble() ?? (b['total_amount'] as num?)?.toDouble() ?? (b['amount'] as num?)?.toDouble() ?? 0.0;
-      dailyIncome += amt;
+      dailyIncome += _calculateNetJobIncome(b);
     }
 
-    // 3. Calculate Monthly Income (ONLY accepted/active/completed by provider)
+    // 3. Calculate Monthly Net Income (ONLY completed jobs this month with platform fee deducted)
     double monthlyIncome = 0;
     for (final b in bookings) {
       final scheduledAt = b['scheduled_at'] ?? b['createdAt'] ?? b['date'];
       final status = (b['status'] ?? '').toString().toLowerCase();
-      if (acceptedStatuses.contains(status) && _isThisMonthDate(scheduledAt)) {
-        final amt = (b['payable_amount'] as num?)?.toDouble() ?? (b['total_amount'] as num?)?.toDouble() ?? (b['amount'] as num?)?.toDouble() ?? 0.0;
-        monthlyIncome += amt;
+      if (completedStatuses.contains(status) && _isThisMonthDate(scheduledAt)) {
+        monthlyIncome += _calculateNetJobIncome(b);
       }
     }
     if (analytics?['monthRevenue'] != null) {
@@ -1085,9 +1097,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   Widget _buildUpcomingSchedule() {
     final jobsState = ref.watch(jobsProvider);
-    final upcomingAndOngoing = jobsState.bookings.where((b) => 
-      ['accepted', 'started', 'waiting_start_otp', 'waiting_end_otp', 'in_progress'].contains(b['status'])
-    ).toList();
+    final upcomingAndOngoing = jobsState.bookings.where((b) {
+      final status = (b['status'] ?? '').toString().toLowerCase();
+      return ['accepted', 'assigned', 'confirmed', 'started', 'waiting_start_otp', 'waiting_end_otp', 'in_progress'].contains(status);
+    }).toList();
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24.0),

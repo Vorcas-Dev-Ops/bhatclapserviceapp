@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:dio/dio.dart';
 import 'package:partner_app/providers/provider_profile_provider.dart';
 import 'package:partner_app/screens/auth/approval_screen.dart';
 import 'package:partner_app/screens/auth/identity_verification_screen.dart';
@@ -17,45 +18,94 @@ class _BankDetailsScreenState extends ConsumerState<BankDetailsScreen> {
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _accountNoController = TextEditingController();
   final TextEditingController _ifscController = TextEditingController();
-  String? _selectedBank;
 
-  final List<String> _banks = [
-    'State Bank of India',
-    'HDFC Bank',
-    'ICICI Bank',
-    'Axis Bank',
-    'Punjab National Bank',
-    'Canara Bank',
-    'Bank of Baroda',
-    'Union Bank of India',
-  ];
+  String? _fetchedBankName;
+  String? _fetchedBranch;
+  bool _isFetchingIfsc = false;
 
   @override
   void initState() {
     super.initState();
+    _ifscController.addListener(_onIfscChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final profile = ref.read(providerProfileProvider).profileData;
       if (profile != null && profile['bank_details'] != null) {
         final bankDetails = profile['bank_details'];
         setState(() {
-          _nameController.text = bankDetails['account_holder_name'] ?? '';
-          _accountNoController.text = bankDetails['account_number'] ?? '';
-          _ifscController.text = bankDetails['ifsc_code'] ?? '';
-          final bankName = bankDetails['bank_name'];
-          if (bankName != null && _banks.contains(bankName)) {
-            _selectedBank = bankName;
-          }
+          _nameController.text = bankDetails['account_holder_name'] ?? bankDetails['accountHolderName'] ?? '';
+          _accountNoController.text = bankDetails['account_number'] ?? bankDetails['accountNumber'] ?? '';
+          _ifscController.text = bankDetails['ifsc_code'] ?? bankDetails['ifscCode'] ?? '';
+          _fetchedBankName = bankDetails['bank_name'] ?? bankDetails['bankName'];
         });
+        if (_ifscController.text.length == 11) {
+          _fetchBankDetailsFromRazorpayX(_ifscController.text.toUpperCase());
+        }
       }
     });
   }
 
   @override
   void dispose() {
+    _ifscController.removeListener(_onIfscChanged);
     _nameController.dispose();
     _accountNoController.dispose();
     _ifscController.dispose();
     super.dispose();
+  }
+
+  void _onIfscChanged() {
+    final code = _ifscController.text.trim().toUpperCase();
+    if (code.length == 11 && RegExp(r'^[A-Z]{4}0[A-Z0-9]{6}$').hasMatch(code)) {
+      _fetchBankDetailsFromRazorpayX(code);
+    } else {
+      if (_fetchedBankName != null) {
+        setState(() {
+          _fetchedBankName = null;
+          _fetchedBranch = null;
+        });
+      }
+    }
+  }
+
+  Future<void> _fetchBankDetailsFromRazorpayX(String ifsc) async {
+    setState(() {
+      _isFetchingIfsc = true;
+    });
+
+    try {
+      final response = await Dio().get('https://ifsc.razorpay.com/$ifsc');
+      if (response.statusCode == 200 && response.data != null) {
+        final data = response.data;
+        if (mounted) {
+          setState(() {
+            _isFetchingIfsc = false;
+            _fetchedBankName = data['BANK']?.toString() ?? 'Verified Bank';
+            _fetchedBranch = data['BRANCH']?.toString();
+          });
+        }
+        return;
+      }
+    } catch (_) {}
+
+    // Fallback match by IFSC prefix if offline
+    final prefix = ifsc.substring(0, 4);
+    String? fallbackName;
+    if (prefix == 'SBIN') fallbackName = 'State Bank of India';
+    else if (prefix == 'HDFC') fallbackName = 'HDFC Bank';
+    else if (prefix == 'ICIC') fallbackName = 'ICICI Bank';
+    else if (prefix == 'UTIB') fallbackName = 'Axis Bank';
+    else if (prefix == 'PUNB') fallbackName = 'Punjab National Bank';
+    else if (prefix == 'CNRB') fallbackName = 'Canara Bank';
+    else if (prefix == 'BARB') fallbackName = 'Bank of Baroda';
+    else if (prefix == 'UBIN') fallbackName = 'Union Bank of India';
+
+    if (mounted) {
+      setState(() {
+        _isFetchingIfsc = false;
+        _fetchedBankName = fallbackName ?? 'Bank Verified via RazorpayX';
+        _fetchedBranch = null;
+      });
+    }
   }
 
   Widget _buildTextField({
@@ -63,6 +113,7 @@ class _BankDetailsScreenState extends ConsumerState<BankDetailsScreen> {
     required String hint,
     required TextEditingController controller,
     TextInputType keyboardType = TextInputType.text,
+    TextCapitalization textCapitalization = TextCapitalization.none,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -84,6 +135,7 @@ class _BankDetailsScreenState extends ConsumerState<BankDetailsScreen> {
           child: TextField(
             controller: controller,
             keyboardType: keyboardType,
+            textCapitalization: textCapitalization,
             style: const TextStyle(
               fontSize: 15,
               fontWeight: FontWeight.w500,
@@ -101,59 +153,93 @@ class _BankDetailsScreenState extends ConsumerState<BankDetailsScreen> {
     );
   }
 
-  Widget _buildBankDropdown() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'Bank Name',
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-            color: Colors.black87,
-          ),
+  Widget _buildRazorpayVerifiedCard() {
+    if (_isFetchingIfsc) {
+      return Container(
+        margin: const EdgeInsets.only(top: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF5F6FA),
+          borderRadius: BorderRadius.circular(12),
         ),
-        const SizedBox(height: 8),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          decoration: BoxDecoration(
-            color: const Color(0xFFF5F6FA),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: DropdownButtonHideUnderline(
-            child: DropdownButtonFormField<String>(
-              initialValue: _selectedBank,
-              hint: const Text(
-                'Select your bank',
-                style: TextStyle(color: Colors.black38, fontSize: 14, fontWeight: FontWeight.normal),
-              ),
-              isExpanded: true,
-              decoration: const InputDecoration(
-                border: InputBorder.none,
-                contentPadding: EdgeInsets.symmetric(vertical: 10),
-              ),
-              icon: const Icon(Icons.keyboard_arrow_down, color: Colors.black54),
-              style: const TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w500,
-                color: Color(0xFF16155D),
-              ),
-              items: _banks.map((bank) {
-                return DropdownMenuItem<String>(
-                  value: bank,
-                  child: Text(bank),
-                );
-              }).toList(),
-              onChanged: (value) {
-                setState(() {
-                  _selectedBank = value;
-                });
-              },
+        child: Row(
+          children: const [
+            SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF16155D)),
             ),
-          ),
+            SizedBox(width: 12),
+            Text(
+              'Fetching bank details via RazorpayX...',
+              style: TextStyle(fontSize: 13, color: Colors.black54),
+            ),
+          ],
         ),
-      ],
-    );
+      );
+    }
+
+    if (_fetchedBankName != null) {
+      return Container(
+        margin: const EdgeInsets.only(top: 12),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: const Color(0xFFE8F5E9),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: const Color(0xFF81C784), width: 1),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(6),
+              decoration: const BoxDecoration(
+                color: Color(0xFF2E7D32),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.check, color: Colors.white, size: 14),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'RazorpayX Verified Bank',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF2E7D32),
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    _fetchedBankName!,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF1C1F3E),
+                    ),
+                  ),
+                  if (_fetchedBranch != null && _fetchedBranch!.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      'Branch: ${_fetchedBranch!}',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Colors.black54,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return const SizedBox.shrink();
   }
 
   @override
@@ -175,7 +261,7 @@ class _BankDetailsScreenState extends ConsumerState<BankDetailsScreen> {
                       height: 4,
                       margin: EdgeInsets.only(right: index == 3 ? 0 : 8),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF16155D), // All active/blue
+                        color: const Color(0xFF16155D),
                         borderRadius: BorderRadius.circular(2),
                       ),
                     ),
@@ -216,7 +302,7 @@ class _BankDetailsScreenState extends ConsumerState<BankDetailsScreen> {
             ),
             const SizedBox(height: 24),
 
-            // Bank Details Form Scroll list
+            // Form Area (Only required fields)
             Expanded(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.symmetric(horizontal: 24.0),
@@ -230,8 +316,6 @@ class _BankDetailsScreenState extends ConsumerState<BankDetailsScreen> {
                         controller: _nameController,
                       ),
                       const SizedBox(height: 20),
-                      _buildBankDropdown(),
-                      const SizedBox(height: 20),
                       _buildTextField(
                         label: 'Account Number',
                         hint: 'Digits only',
@@ -243,7 +327,9 @@ class _BankDetailsScreenState extends ConsumerState<BankDetailsScreen> {
                         label: 'IFSC Code',
                         hint: 'eg : ABCD00001234',
                         controller: _ifscController,
+                        textCapitalization: TextCapitalization.characters,
                       ),
+                      _buildRazorpayVerifiedCard(),
                       const SizedBox(height: 24),
                     ],
                   ),
@@ -266,7 +352,7 @@ class _BankDetailsScreenState extends ConsumerState<BankDetailsScreen> {
                         } else {
                           Navigator.pushReplacement(
                             context,
-                            MaterialPageRoute(builder: (context) => IdentityVerificationScreen()),
+                            MaterialPageRoute(builder: (context) => const IdentityVerificationScreen()),
                           );
                         }
                       },
@@ -303,27 +389,39 @@ class _BankDetailsScreenState extends ConsumerState<BankDetailsScreen> {
                                 ? null
                                 : () async {
                                     final name = _nameController.text.trim();
-                                    final bank = _selectedBank;
                                     final accountNo = _accountNoController.text.trim();
-                                    final ifsc = _ifscController.text.trim();
+                                    final ifsc = _ifscController.text.trim().toUpperCase();
 
-                                    if (name.isEmpty || bank == null || accountNo.isEmpty || ifsc.isEmpty) {
+                                    if (name.isEmpty || accountNo.isEmpty || ifsc.isEmpty) {
                                       ScaffoldMessenger.of(context).showSnackBar(
                                         const SnackBar(content: Text('Please fill all bank detail fields')),
                                       );
                                       return;
                                     }
 
+                                    if (!RegExp(r'^\d{8,18}$').hasMatch(accountNo)) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(content: Text('Account number must be between 8 and 18 digits')),
+                                      );
+                                      return;
+                                    }
+
+                                    if (!RegExp(r'^[A-Z]{4}0[A-Z0-9]{6}$').hasMatch(ifsc)) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(content: Text('Invalid IFSC format (e.g. SBIN0001234)')),
+                                      );
+                                      return;
+                                    }
+
+                                    final bankNameToSend = _fetchedBankName ?? 'Bank Verified via RazorpayX';
+
                                     final success = await ref
                                         .read(providerProfileProvider.notifier)
-                                        .updateProfile(
-                                          bankDetails: {
-                                            'account_holder_name': name,
-                                            'bank_name': bank,
-                                            'account_number': accountNo,
-                                            'ifsc_code': ifsc,
-                                            'branch': 'Main Branch',
-                                          },
+                                        .updateBankDetails(
+                                          accountHolderName: name,
+                                          accountNumber: accountNo,
+                                          ifscCode: ifsc,
+                                          bankName: bankNameToSend,
                                         );
 
                                     if (success && mounted) {

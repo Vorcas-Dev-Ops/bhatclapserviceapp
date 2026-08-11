@@ -286,8 +286,18 @@ class _JobsScreenState extends ConsumerState<JobsScreen> {
 
   Widget _buildTabsRow() {
     final jobsState = ref.watch(jobsProvider);
-    final upcomingCount = jobsState.bookings.where((b) => b['status'] == 'accepted').length;
-    final ongoingCount = jobsState.bookings.where((b) => ['started', 'waiting_start_otp', 'waiting_end_otp', 'in_progress'].contains(b['status'])).length;
+    final upcomingCount = jobsState.bookings.where((b) {
+      if (b is! Map) return false;
+      final status = (b['status'] ?? '').toString().toLowerCase();
+      return ['accepted', 'assigned', 'confirmed', 'scheduled'].contains(status);
+    }).length;
+
+    final ongoingCount = jobsState.bookings.where((b) {
+      if (b is! Map) return false;
+      final status = (b['status'] ?? '').toString().toLowerCase();
+      return ['accepted', 'assigned', 'confirmed', 'scheduled', 'on_the_way', 'arrived', 'reached', 'waiting_start_otp', 'in_progress', 'started', 'ongoing', 'waiting_end_otp'].contains(status);
+    }).length;
+
     final newCount = jobsState.newJobs.length;
 
     return Padding(
@@ -571,7 +581,10 @@ class _JobsScreenState extends ConsumerState<JobsScreen> {
 
   Widget _buildUpcomingJobsView() {
     final jobsState = ref.watch(jobsProvider);
-    final upcomingList = jobsState.bookings.where((b) => b['status'] == 'accepted').toList();
+    final upcomingList = jobsState.bookings.where((b) {
+      final status = (b['status'] ?? '').toString().toLowerCase();
+      return ['accepted', 'assigned', 'confirmed'].contains(status);
+    }).toList();
 
     if (upcomingList.isEmpty) {
       return const Padding(
@@ -642,9 +655,11 @@ class _JobsScreenState extends ConsumerState<JobsScreen> {
 
   Widget _buildOngoingJobsView() {
     final jobsState = ref.watch(jobsProvider);
-    final ongoingList = jobsState.bookings
-        .where((b) => ['started', 'waiting_start_otp', 'waiting_end_otp', 'in_progress'].contains(b['status']))
-        .toList();
+    final ongoingList = jobsState.bookings.where((b) {
+      if (b is! Map) return false;
+      final status = (b['status'] ?? '').toString().toLowerCase();
+      return ['accepted', 'assigned', 'confirmed', 'scheduled', 'on_the_way', 'arrived', 'reached', 'waiting_start_otp', 'in_progress', 'started', 'ongoing', 'waiting_end_otp'].contains(status);
+    }).toList();
 
     if (ongoingList.isEmpty) {
       return const Padding(
@@ -665,12 +680,18 @@ class _JobsScreenState extends ConsumerState<JobsScreen> {
         final address = booking['address_id'] ?? {};
         final addressLine = address['address_line'] ?? 'Address';
         final city = address['city'] ?? 'City';
-        final status = booking['status'] ?? 'started';
-        final displayStatus = status == 'waiting_start_otp'
+        final rawStatus = (booking['status'] ?? 'started').toString().toLowerCase();
+        final displayStatus = rawStatus == 'waiting_start_otp'
             ? 'WAITING FOR START OTP'
-            : status == 'waiting_end_otp'
+            : rawStatus == 'waiting_end_otp'
                 ? 'WAITING FOR END OTP'
-                : 'SERVICE IN PROGRESS';
+                : rawStatus == 'in_progress' || rawStatus == 'started' || rawStatus == 'ongoing'
+                    ? 'SERVICE IN PROGRESS'
+                    : rawStatus == 'on_the_way'
+                        ? 'ON THE WAY TO LOCATION'
+                        : rawStatus == 'arrived' || rawStatus == 'reached'
+                            ? 'ARRIVED AT LOCATION'
+                            : 'ASSIGNED / CONFIRMED';
 
         return _buildJobCard(
           title: serviceName,

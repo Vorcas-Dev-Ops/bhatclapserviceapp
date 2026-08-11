@@ -85,6 +85,36 @@ class NotificationNotifier extends StateNotifier<NotificationState> {
           status: NotificationStatus.loaded,
           notifications: data,
         );
+
+        // Check for new unread chat messages
+        try {
+          final chatRes = await _apiClient.dio.get('/api/chat/conversations');
+          if (chatRes.statusCode == 200) {
+            final payload = chatRes.data['data'] ?? chatRes.data;
+            if (payload is List) {
+              for (var conv in payload) {
+                final unreadProv = (conv['unread_count_provider'] as num?)?.toInt() ?? 0;
+                final lastMsg = conv['last_message'] ?? '';
+                final convId = conv['conversation_id'] ?? conv['_id'] ?? '';
+                final bookingId = conv['booking_id'] ?? convId.toString().replaceAll('CHAT-BKG-', '');
+                final customerName = conv['customer']?['name'] ?? 'Customer';
+
+                if (unreadProv > 0 && lastMsg.isNotEmpty) {
+                  final notifKey = 'chat_${convId}_${lastMsg.hashCode}';
+                  if (!_shownNotificationIds.contains(notifKey)) {
+                    _shownNotificationIds.add(notifKey);
+                    NotificationService.showNotification(
+                      id: notifKey.hashCode.abs() % 100000,
+                      title: 'New message from $customerName',
+                      body: lastMsg,
+                      payload: jsonEncode({'booking_id': bookingId, 'type': 'chat'}),
+                    );
+                  }
+                }
+              }
+            }
+          }
+        } catch (_) {}
       }
     } on DioException catch (e) {
       state = state.copyWith(

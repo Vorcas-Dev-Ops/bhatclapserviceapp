@@ -1,7 +1,7 @@
 import 'dart:async';
-import 'dart:convert';
-import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
+import 'package:razorpay_flutter/razorpay_flutter.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 class PartnerRazorpayGatewayModalSheet extends StatefulWidget {
   final String orderId;
@@ -22,6 +22,7 @@ class PartnerRazorpayGatewayModalSheet extends StatefulWidget {
 }
 
 class _PartnerRazorpayGatewayModalSheetState extends State<PartnerRazorpayGatewayModalSheet> {
+  late Razorpay _razorpay;
   int _selectedTab = 0; // 0: UPI, 1: Card, 2: NetBanking
   String _selectedUpiApp = 'Google Pay';
   bool _isProcessing = false;
@@ -43,57 +44,114 @@ class _PartnerRazorpayGatewayModalSheetState extends State<PartnerRazorpayGatewa
   String _selectedBank = 'HDFC Bank';
 
   @override
+  void initState() {
+    super.initState();
+    _razorpay = Razorpay();
+    _razorpay.on(Razorpay.EVENT_PAYMENT_SUCCESS, _handlePaymentSuccess);
+    _razorpay.on(Razorpay.EVENT_PAYMENT_ERROR, _handlePaymentError);
+    _razorpay.on(Razorpay.EVENT_EXTERNAL_WALLET, _handleExternalWallet);
+  }
+
+  @override
   void dispose() {
+    _razorpay.clear();
     _cardNumberController.dispose();
     _cardExpiryController.dispose();
     _cardCvvController.dispose();
     super.dispose();
   }
 
-  Future<void> _executePayment() async {
-    setState(() {
-      _isProcessing = true;
-      _processingStep = 'Connecting to Razorpay gateway...';
-    });
-
-    await Future.delayed(const Duration(milliseconds: 600));
-
+  void _handlePaymentSuccess(PaymentSuccessResponse response) {
     if (!mounted) return;
-    setState(() {
-      _processingStep = 'Authenticating transaction details...';
-    });
-
-    await Future.delayed(const Duration(milliseconds: 700));
-
-    if (!mounted) return;
-    setState(() {
-      _processingStep = 'Verifying with bank servers...';
-    });
-
-    await Future.delayed(const Duration(milliseconds: 800));
-
-    if (!mounted) return;
-    setState(() {
-      _isSuccess = true;
-      _processingStep = 'Payment Approved Successfully!';
-    });
-
-    await Future.delayed(const Duration(milliseconds: 800));
-
-    if (!mounted) return;
-
-    final mockPaymentId = 'pay_${DateTime.now().millisecondsSinceEpoch}';
-    final keyBytes = utf8.encode('BEx2OBXwYoQI4YHuVIYh7cSB');
-    final messageBytes = utf8.encode('${widget.orderId}|$mockPaymentId');
-    final hmac = Hmac(sha256, keyBytes);
-    final validSignature = hmac.convert(messageBytes).toString();
-
     Navigator.pop(context, {
       'success': true,
-      'razorpay_order_id': widget.orderId,
-      'razorpay_payment_id': mockPaymentId,
-      'razorpay_signature': validSignature,
+      'razorpay_order_id': response.orderId ?? widget.orderId,
+      'razorpay_payment_id': response.paymentId,
+      'razorpay_signature': response.signature,
     });
+  }
+
+  void _handlePaymentError(PaymentFailureResponse response) {
+    if (!mounted) return;
+    setState(() => _isProcessing = false);
+    final reason = response.message ?? 'Payment cancelled or declined by bank/gateway.';
+    _showFailureDialog(reason);
+  }
+
+  void _handleExternalWallet(ExternalWalletResponse response) {
+    if (!mounted) return;
+    setState(() => _isProcessing = false);
+    _showFailureDialog('External wallet selected: ${response.walletName}');
+  }
+
+  void _showFailureDialog(String reason) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: const [
+            Icon(Icons.error_outline, color: Colors.red, size: 28),
+            SizedBox(width: 8),
+            Text(
+              'Payment Failed',
+              style: TextStyle(fontWeight: FontWeight.bold, color: Colors.redAccent, fontSize: 18),
+            ),
+          ],
+        ),
+        content: Text(
+          'Payment process failed: $reason',
+          style: const TextStyle(fontSize: 14, color: Colors.black87),
+        ),
+        actions: [
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF16155D),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            onPressed: () {
+              Navigator.pop(dialogContext); // close dialog
+              Navigator.pop(context, {'success': false, 'message': reason}); // return failed result
+            },
+            child: const Text('OK', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _executePayment() async {
+    if (widget.orderId.isEmpty || widget.orderId.contains('mock')) {
+      _showFailureDialog('Invalid Order ID returned from server.');
+      return;
+    }
+
+    setState(() {
+      _isProcessing = true;
+      _processingStep = 'Opening Razorpay Gateway...';
+    });
+
+    try {
+      final activeKey = widget.keyId.isNotEmpty && !widget.keyId.contains('mock')
+          ? widget.keyId
+          : (dotenv.env['NEXT_PUBLIC_RAZORPAY_KEY_ID'] ?? 'rzp_test_TCwlsGgFYgQdGL');
+
+      final options = {
+        'key': activeKey,
+        'amount': (widget.amount * 100).toInt(),
+        'name': widget.title,
+        'description': widget.title,
+        'order_id': widget.orderId,
+        'timeout': 180,
+      };
+
+      _razorpay.open(options);
+    } catch (e) {
+      if (mounted) {
+        _showFailureDialog(e.toString());
+      }
+    }
   }
 
   @override

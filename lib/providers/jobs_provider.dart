@@ -66,12 +66,18 @@ class JobsNotifier extends StateNotifier<JobsState> {
       print('newJobsList: $newJobsList');
 
       // 2. Fetch my bookings (Upcoming, Ongoing, Completed)
-      final bookingsResponse = await _apiClient.dio.get('/api/bookings/my');
+      final bookingsResponse = await _apiClient.dio.get('/api/bookings/my?role=provider&limit=50');
       List<dynamic> bookingsList = [];
       if (bookingsResponse.statusCode == 200) {
         final body = bookingsResponse.data;
-        if (body != null && body['data'] is List) {
-          bookingsList = body['data'];
+        if (body != null) {
+          if (body is List) {
+            bookingsList = body;
+          } else if (body['data'] is List) {
+            bookingsList = body['data'];
+          } else if (body['bookings'] is List) {
+            bookingsList = body['bookings'];
+          }
         }
       }
 

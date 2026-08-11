@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:partner_app/providers/catalog_provider.dart';
 import 'package:partner_app/providers/provider_profile_provider.dart';
+import 'package:partner_app/providers/auth_provider.dart';
 import 'package:partner_app/screens/auth/select_service_location_screen.dart';
 
 class SelectSubCategoriesScreen extends ConsumerStatefulWidget {
@@ -266,6 +267,64 @@ class CategorySubservicesSection extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final subservicesAsync = ref.watch(subservicesProvider(categoryId));
+    final authState = ref.watch(authProvider);
+    final profileState = ref.watch(providerProfileProvider);
+
+    final genderStr = (authState.user?.gender ??
+                       profileState.profileData?['gender'] ??
+                       profileState.profileData?['user_id']?['gender'] ??
+                       '').toString().trim().toLowerCase();
+
+    final isFemaleProvider = genderStr == 'female' || genderStr == 'f';
+    final isMaleProvider = genderStr == 'male' || genderStr == 'm';
+    final isBeautyCategory = categoryName.toLowerCase().contains('beauty') ||
+                             categoryName.toLowerCase().contains('wellness');
+
+    List<dynamic> filterSubservices(List<dynamic> list) {
+      if (!isBeautyCategory) return list;
+
+      if (isFemaleProvider) {
+        return list.where((subservice) {
+          final targetGender = (subservice['target_gender'] ?? subservice['gender'] ?? '').toString().toLowerCase();
+          if (targetGender == 'female' || targetGender == 'women') return true;
+          if (targetGender == 'male' || targetGender == 'men') return false;
+
+          final name = (subservice['subservice_name'] ?? subservice['name'] ?? '').toString().toLowerCase();
+          final desc = (subservice['description'] ?? '').toString().toLowerCase();
+          final combined = '$name $desc';
+
+          final hasMaleKeyword = (combined.contains('men') && !combined.contains('women')) ||
+                                 combined.contains('male') ||
+                                 combined.contains('beard') ||
+                                 combined.contains('barber');
+
+          return !hasMaleKeyword;
+        }).toList();
+      }
+
+      if (isMaleProvider) {
+        return list.where((subservice) {
+          final targetGender = (subservice['target_gender'] ?? subservice['gender'] ?? '').toString().toLowerCase();
+          if (targetGender == 'male' || targetGender == 'men') return true;
+          if (targetGender == 'female' || targetGender == 'women') return false;
+
+          final name = (subservice['subservice_name'] ?? subservice['name'] ?? '').toString().toLowerCase();
+          final desc = (subservice['description'] ?? '').toString().toLowerCase();
+          final combined = '$name $desc';
+
+          final hasFemaleKeyword = combined.contains('women') ||
+                                   combined.contains('female') ||
+                                   combined.contains('waxing') ||
+                                   combined.contains('threading') ||
+                                   combined.contains('makeup') ||
+                                   combined.contains('bridal');
+
+          return !hasFemaleKeyword;
+        }).toList();
+      }
+
+      return list;
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -283,8 +342,9 @@ class CategorySubservicesSection extends ConsumerWidget {
             ),
             subservicesAsync.when(
               data: (subservices) {
-                if (subservices.isEmpty) return const SizedBox.shrink();
-                final ids = subservices.map((s) => s['_id'].toString()).toList();
+                final displayList = filterSubservices(subservices);
+                if (displayList.isEmpty) return const SizedBox.shrink();
+                final ids = displayList.map((s) => s['_id'].toString()).toList();
                 final allSelected = ids.every((id) => selectedSubserviceIds.contains(id));
                 return GestureDetector(
                   onTap: () {
@@ -333,8 +393,9 @@ class CategorySubservicesSection extends ConsumerWidget {
         const SizedBox(height: 12),
         subservicesAsync.when(
           data: (subservices) {
-            if (subservices.isEmpty) {
-              return const Text('No subservices available in this category.');
+            final displayList = filterSubservices(subservices);
+            if (displayList.isEmpty) {
+              return const Text('No female subservices available in this category.');
             }
             return GridView.builder(
               shrinkWrap: true,
@@ -345,9 +406,9 @@ class CategorySubservicesSection extends ConsumerWidget {
                 mainAxisSpacing: 12,
                 childAspectRatio: 1.9,
               ),
-              itemCount: subservices.length,
+              itemCount: displayList.length,
               itemBuilder: (context, index) {
-                final subservice = subservices[index];
+                final subservice = displayList[index];
                 final subserviceId = subservice['_id'];
                 final name = subservice['subservice_name'];
                 final isSelected = selectedSubserviceIds.contains(subserviceId);
