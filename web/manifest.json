@@ -1,6 +1,6 @@
 {
-    "name": "partner_app",
-    "short_name": "partner_app",
+    "name": "BharatClap Partner",
+    "short_name": "BharatClap Partner",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

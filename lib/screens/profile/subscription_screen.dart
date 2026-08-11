@@ -353,7 +353,7 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
     final options = {
       'key': keyId,
       'amount': (price * 100).toInt(),
-      'name': 'BharathClap Provider',
+      'name': 'BharatClap Partner',
       'description': 'BharatClap ${plan['name']} Package',
       'order_id': razorpayOrderId,
       'prefill': {

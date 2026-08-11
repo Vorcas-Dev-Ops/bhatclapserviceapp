@@ -532,7 +532,7 @@ class _AddCreditsScreenState extends ConsumerState<AddCreditsScreen> {
     final options = {
       'key': Config.razorpayKeyId,
       'amount': (amountInRupees * 100).toInt(),
-      'name': 'BharathClap Provider',
+      'name': 'BharatClap Partner',
       'description': 'Partner Wallet Credit Recharge',
       'order_id': orderId,
       'prefill': {

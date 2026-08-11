@@ -88,7 +88,7 @@ class _StarterKitScreenState extends ConsumerState<StarterKitScreen> {
         final options = {
           'key': Config.razorpayKeyId,
           'amount': data['amount'],
-          'name': 'BharathClap Provider',
+          'name': 'BharatClap Partner',
           'description': 'Provider Starter Kit',
           'order_id': data['orderId'],
           'notes': {

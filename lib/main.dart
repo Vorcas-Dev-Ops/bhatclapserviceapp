@@ -6,6 +6,8 @@ import 'services/server_error_handler.dart';
 
 import 'services/notification_service.dart';
 
+import 'screens/splash/splash_screen.dart';
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   try {
@@ -28,13 +30,13 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       navigatorKey: ServerErrorHandler.navigatorKey,
-      title: 'Partner App',
+      title: 'BharatClap Partner',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF16155D)),
         useMaterial3: true,
       ),
-      home: const AuthGate(),
+      home: const SplashScreen(),
     );
   }
 }
