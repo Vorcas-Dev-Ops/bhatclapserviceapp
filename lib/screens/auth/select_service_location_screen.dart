@@ -45,16 +45,15 @@ class _SelectServiceLocationScreenState extends ConsumerState<SelectServiceLocat
       if (response.statusCode == 200 && response.data is List) {
         final rawList = List<Map<String, dynamic>>.from(response.data);
         
-        // Pre-select already assigned service_locations if present in profile
+        // Pre-select already assigned service_locations if present in profile (only 1 location)
         final profile = ref.read(providerProfileProvider).profileData;
         final existingLocations = profile?['service_locations'] as List?;
-        if (existingLocations != null) {
-          for (var item in existingLocations) {
-            if (item is String) {
-              _selectedLocationIds.add(item);
-            } else if (item is Map && item['_id'] != null) {
-              _selectedLocationIds.add(item['_id'].toString());
-            }
+        if (existingLocations != null && existingLocations.isNotEmpty) {
+          final item = existingLocations.first;
+          if (item is String) {
+            _selectedLocationIds.add(item);
+          } else if (item is Map && item['_id'] != null) {
+            _selectedLocationIds.add(item['_id'].toString());
           }
         }
 
@@ -134,7 +133,7 @@ class _SelectServiceLocationScreenState extends ConsumerState<SelectServiceLocat
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
-                      'Select Work Locations',
+                      'Select Work Location',
                       style: TextStyle(
                         fontSize: 26,
                         fontWeight: FontWeight.bold,
@@ -144,7 +143,7 @@ class _SelectServiceLocationScreenState extends ConsumerState<SelectServiceLocat
                     ),
                     const SizedBox(height: 6),
                     const Text(
-                      'Choose the cities and areas where you are available to accept service bookings.',
+                      'Choose the city or area where you are available to accept service bookings (select 1 location).',
                       style: TextStyle(
                         fontSize: 14,
                         color: Colors.black54,
@@ -292,10 +291,9 @@ class _SelectServiceLocationScreenState extends ConsumerState<SelectServiceLocat
                                     ),
                                     onChanged: (bool? checked) {
                                       setState(() {
+                                        _selectedLocationIds.clear();
                                         if (checked == true) {
                                           _selectedLocationIds.add(id);
-                                        } else {
-                                          _selectedLocationIds.remove(id);
                                         }
                                       });
                                     },
@@ -413,7 +411,7 @@ class _SelectServiceLocationScreenState extends ConsumerState<SelectServiceLocat
                                   Text(
                                     _selectedLocationIds.isEmpty
                                         ? 'Select Location'
-                                        : 'Continue (${_selectedLocationIds.length})',
+                                        : 'Continue',
                                     style: const TextStyle(
                                       fontSize: 16,
                                       color: Colors.white,

@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:ui';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
@@ -28,6 +29,34 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
   // 1 -> Arrived at Location
   // 2 -> Start Service
   int _acceptedSubStep = 0;
+  bool _isJobUnavailable = false;
+
+  bool _isQrGenerated = false;
+  String? _qrUrl;
+  bool _checkingStatus = false;
+  Timer? _statusTimer;
+
+  bool get _isCancelledOrExpired {
+    final status = (_getVal('status') ?? '').toString().toLowerCase().trim();
+    return _isJobUnavailable ||
+        status == 'cancelled' ||
+        status == 'canceled' ||
+        status == 'expired' ||
+        status == 'expired_timeout' ||
+        status == 'unassigned_timeout' ||
+        status == 'high_demand_timeout' ||
+        status == 'rejected' ||
+        status == 'failed';
+  }
+
+  bool get _isUnaccepted {
+    if (widget.isNewJob) return true;
+    final status = (_getVal('status') ?? '').toString().toLowerCase().trim();
+    if (status == 'pending' || status == 'provider_searching' || status == 'new' || status.isEmpty) {
+      return true;
+    }
+    return false;
+  }
 
   @override
   void initState() {
@@ -36,7 +65,7 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _loadBookingById();
       });
-    } else if (!widget.isNewJob && widget.booking != null) {
+    } else if (!_isUnaccepted && widget.booking != null) {
       _syncStatusStep();
     }
   }
@@ -57,7 +86,14 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
     } else if (status == 'in_progress') {
       _stepIndex = 2;
     } else if (status == 'waiting_end_otp') {
-      _stepIndex = 3;
+      final isCOD = _isCOD();
+      final pc = _getVal('payment_collection');
+      final pcStatus = (pc != null && pc is Map) ? (pc['status'] ?? '').toString().toLowerCase() : '';
+      if (isCOD && pcStatus != 'cash_collected' && pcStatus != 'upi_completed') {
+        _stepIndex = 3; // Move to COD Payment Collection (Step 3)
+      } else {
+        _stepIndex = 4; // Move to Enter End OTP (Step 4)
+      }
     }
   }
 
@@ -271,6 +307,7 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
 
   @override
   void dispose() {
+    _statusTimer?.cancel();
     for (var c in _startOtpControllers) {
       c.dispose();
     }
@@ -763,7 +800,7 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
                     children: [
                       InkWell(
                         onTap: () {
-                          if (_acceptedSubStep == 0 && !widget.isNewJob) {
+                          if (_acceptedSubStep == 0 && !_isUnaccepted) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(
                                 content: Text('Please tap "Leaving for Service" to start navigation.'),
@@ -1057,165 +1094,210 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
               child: SizedBox(
                 width: double.infinity,
                 height: 54,
-                child: widget.isNewJob
-                    ? ElevatedButton(
-                        onPressed: () async {
-                          final reqId = (_getVal('requestId') ?? _getVal('request_id') ?? _getVal('_id'))?.toString() ?? '';
-                          final success = await ref
-                              .read(jobsProvider.notifier)
-                              .acceptJob(reqId);
-                          if (mounted) {
-                            if (success) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('Job accepted successfully!'),
-                                  backgroundColor: Color(0xFF2E7D32),
-                                ),
-                              );
-                              Navigator.pop(context);
-                            } else {
-                              final err = ref.read(jobsProvider).errorMessage ?? 'Failed to accept job';
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text(err),
-                                  backgroundColor: Colors.red,
-                                ),
-                              );
-                            }
-                          }
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF16155D),
-                          elevation: 0,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                        ),
-                        child: const Text(
-                          'Accept Job',
-                          style: TextStyle(
-                            fontSize: 16,
-                            color: Colors.white,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      )
-                    : (_acceptedSubStep == 0
-                        ? ElevatedButton.icon(
-                            onPressed: () async {
-                              final bookingId = _getVal('_id')?.toString();
-                              if (bookingId != null) {
-                                ref.read(jobsProvider.notifier).updateBookingStatus(bookingId, 'on_the_way');
-                              }
-                              setState(() {
-                                _acceptedSubStep = 1;
-                              });
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('On the way! Opening Google Maps...'),
-                                  backgroundColor: Color(0xFF16155D),
-                                ),
-                              );
-                              _openGoogleMaps('$addressLine, $city');
-                            },
-                            icon: const Icon(
-                              Icons.directions_car_outlined,
-                              color: Colors.white,
-                              size: 20,
-                            ),
-                            label: const Text(
-                              'Leaving for Service',
-                              style: TextStyle(
-                                fontSize: 16,
-                                color: Colors.white,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF16155D),
-                              elevation: 0,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                            ),
-                          )
-                        : (_acceptedSubStep == 1
-                            ? ElevatedButton.icon(
-                                onPressed: () async {
-                                  final bookingId = _getVal('_id')?.toString();
-                                  if (bookingId != null) {
-                                    ref.read(jobsProvider.notifier).updateBookingStatus(bookingId, 'arrived');
-                                  }
-                                  setState(() {
-                                    _acceptedSubStep = 2;
-                                  });
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text('Arrived at location! Tap Start Service when ready.'),
-                                      backgroundColor: Color(0xFF2E7D32),
-                                    ),
-                                  );
-                                },
-                                icon: const Icon(
-                                  Icons.location_on_outlined,
-                                  color: Colors.white,
-                                  size: 20,
-                                ),
-                                label: const Text(
-                                  'Arrived at Location',
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF16155D),
-                                  elevation: 0,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(16),
-                                  ),
-                                ),
-                              )
-                            : ElevatedButton.icon(
-                                onPressed: () async {
-                                  final beforePhotosToSend = _beforePhotos.isNotEmpty
-                                      ? _beforePhotos
-                                      : ['data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='];
-                                  final success = await ref
-                                      .read(jobsProvider.notifier)
-                                      .startService(_getVal('_id'), beforePhotosToSend);
-                                  if (success && mounted) {
-                                    setState(() {
-                                      _stepIndex = 1;
-                                    });
-                                  }
-                                },
-                                icon: const Icon(
-                                  Icons.play_circle_outline_rounded,
-                                  color: Colors.white,
-                                  size: 20,
-                                ),
-                                label: const Text(
-                                  'Start Service',
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF16155D),
-                                  elevation: 0,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(16),
-                                  ),
-                                ),
-                              ))),
+                child: _buildBottomActionButton(),
               ),
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildBottomActionButton() {
+    if (_isCancelledOrExpired) {
+      return Container(
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: Colors.grey.shade200,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.grey.shade400),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.block, color: Colors.grey.shade700, size: 20),
+            const SizedBox(width: 8),
+            Text(
+              'This job is no longer available',
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.bold,
+                color: Colors.grey.shade800,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (_isUnaccepted) {
+      return ElevatedButton(
+        onPressed: () async {
+          final reqId = (_getVal('requestId') ?? _getVal('request_id') ?? _getVal('_id') ?? widget.bookingId)?.toString() ?? '';
+          bool success = await ref.read(jobDispatchProvider.notifier).acceptJob(reqId);
+          if (!success) {
+            success = await ref.read(jobsProvider.notifier).acceptJob(reqId);
+          }
+          if (mounted) {
+            if (success) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Job accepted successfully!'),
+                  backgroundColor: Color(0xFF2E7D32),
+                ),
+              );
+              await ref.read(jobsProvider.notifier).fetchAllJobs();
+              if (!mounted) return;
+              Navigator.pop(context);
+            } else {
+              final err = ref.read(jobDispatchProvider).error ?? ref.read(jobsProvider).errorMessage ?? 'Request is no longer valid or has already been processed';
+              setState(() {
+                _isJobUnavailable = true;
+              });
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(err),
+                  backgroundColor: Colors.red,
+                ),
+              );
+            }
+          }
+        },
+        style: ElevatedButton.styleFrom(
+          backgroundColor: const Color(0xFF16155D),
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+        ),
+        child: const Text(
+          'Accept Job',
+          style: TextStyle(
+            fontSize: 16,
+            color: Colors.white,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      );
+    }
+
+    final addressLine = _getVal('address_id')?['address_line'] ?? '';
+    final city = _getVal('address_id')?['city'] ?? '';
+
+    if (_acceptedSubStep == 0) {
+      return ElevatedButton.icon(
+        onPressed: () async {
+          final bookingId = _getVal('_id')?.toString();
+          if (bookingId != null) {
+            ref.read(jobsProvider.notifier).updateBookingStatus(bookingId, 'on_the_way');
+          }
+          setState(() {
+            _acceptedSubStep = 1;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('On the way! Opening Google Maps...'),
+              backgroundColor: Color(0xFF16155D),
+            ),
+          );
+          _openGoogleMaps('$addressLine, $city');
+        },
+        icon: const Icon(
+          Icons.directions_car_outlined,
+          color: Colors.white,
+          size: 20,
+        ),
+        label: const Text(
+          'Leaving for Service',
+          style: TextStyle(
+            fontSize: 16,
+            color: Colors.white,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: const Color(0xFF16155D),
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+        ),
+      );
+    }
+
+    if (_acceptedSubStep == 1) {
+      return ElevatedButton.icon(
+        onPressed: () async {
+          final bookingId = _getVal('_id')?.toString();
+          if (bookingId != null) {
+            ref.read(jobsProvider.notifier).updateBookingStatus(bookingId, 'arrived');
+          }
+          setState(() {
+            _acceptedSubStep = 2;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Arrived at location! Tap Start Service when ready.'),
+              backgroundColor: Color(0xFF2E7D32),
+            ),
+          );
+        },
+        icon: const Icon(
+          Icons.location_on_outlined,
+          color: Colors.white,
+          size: 20,
+        ),
+        label: const Text(
+          'Arrived at Location',
+          style: TextStyle(
+            fontSize: 16,
+            color: Colors.white,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: const Color(0xFF16155D),
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+        ),
+      );
+    }
+
+    return ElevatedButton.icon(
+      onPressed: () async {
+        final beforePhotosToSend = _beforePhotos.isNotEmpty
+            ? _beforePhotos
+            : ['data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='];
+        final success = await ref
+            .read(jobsProvider.notifier)
+            .startService(_getVal('_id'), beforePhotosToSend);
+        if (success && mounted) {
+          setState(() {
+            _stepIndex = 1;
+          });
+        }
+      },
+      icon: const Icon(
+        Icons.play_circle_outline_rounded,
+        color: Colors.white,
+        size: 20,
+      ),
+      label: const Text(
+        'Start Service',
+        style: TextStyle(
+          fontSize: 16,
+          color: Colors.white,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: const Color(0xFF16155D),
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
       ),
     );
   }
@@ -1323,6 +1405,30 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
                   ),
                 );
               }),
+            ),
+            const SizedBox(height: 24),
+            TextButton.icon(
+              onPressed: () async {
+                final bId = _getVal('_id');
+                final success = await ref.read(jobsProvider.notifier).resendOtp(bId, 'start');
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(success ? 'Resent Start OTP to customer\'s mobile number!' : 'Failed to resend OTP'),
+                      backgroundColor: success ? Colors.green : Colors.red,
+                    ),
+                  );
+                }
+              },
+              icon: const Icon(Icons.send_to_mobile, size: 16, color: Color(0xFF16155D)),
+              label: const Text(
+                'Resend Start OTP to Customer',
+                style: TextStyle(
+                  color: Color(0xFF16155D),
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13,
+                ),
+              ),
             ),
           ],
         ),
@@ -1553,7 +1659,11 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
                           .finishService(_getVal('_id'), afterPhotosToSend);
                       if (success && mounted) {
                         setState(() {
-                          _stepIndex = 3; // Move to entering End OTP
+                          if (_isCOD()) {
+                            _stepIndex = 3; // Move to COD Payment Collection (Step 3)
+                          } else {
+                            _stepIndex = 4; // Move to Enter End OTP (Step 4)
+                          }
                         });
                       }
                     });
@@ -1717,6 +1827,278 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
     );
   }
 
+  Widget _buildStep4PaymentCollectionView() {
+    final amount = _getVal('payable_amount') ?? _getVal('amount') ?? 450;
+    final bookingId = _getVal('_id');
+
+    return Expanded(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 30.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFF3E0),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: const Color(0xFFFFB74D)),
+              ),
+              child: Column(
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: const [
+                      Icon(Icons.payments_outlined, color: Color(0xFFE65100), size: 24),
+                      SizedBox(width: 8),
+                      Text(
+                        'COD PAYMENT COLLECTION',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFFE65100),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Collect ₹$amount from the customer to complete this job.',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: Color(0xFF5D4037),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 32),
+            if (!_isQrGenerated) ...[
+              // Option 1: QR Payment
+              ElevatedButton.icon(
+                onPressed: () async {
+                  setState(() {
+                    _checkingStatus = true;
+                  });
+                  final res = await ref.read(jobsProvider.notifier).requestUpi(bookingId);
+                  if (res != null && res['payment_link'] != null && res['payment_link']['url'] != null) {
+                    final linkUrl = res['payment_link']['url'].toString();
+                    setState(() {
+                      _isQrGenerated = true;
+                      _qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${Uri.encodeComponent(linkUrl)}';
+                      _checkingStatus = false;
+                    });
+                    _startPaymentPolling();
+                  } else {
+                    setState(() {
+                      _checkingStatus = false;
+                    });
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Failed to generate UPI QR code. Please collect cash instead.'), backgroundColor: Colors.red),
+                      );
+                    }
+                  }
+                },
+                icon: const Icon(Icons.qr_code_2, color: Colors.white),
+                label: const Text('Generate UPI QR Code', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF16155D),
+                  minimumSize: const Size(double.infinity, 50),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  elevation: 0,
+                ),
+              ),
+              const SizedBox(height: 16),
+              // Option 2: Collect Cash
+              ElevatedButton.icon(
+                onPressed: () async {
+                  _showConfirmCashDialog(bookingId);
+                },
+                icon: const Icon(Icons.money, color: Colors.white),
+                label: const Text('Cash Collected', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF2E7D32),
+                  minimumSize: const Size(double.infinity, 50),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  elevation: 0,
+                ),
+              ),
+            ] else ...[
+              // QR Code is generated
+              const Text(
+                'Scan QR to Pay via UPI',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1C1F3E)),
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: Colors.grey.shade200),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.04),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: Image.network(
+                  _qrUrl!,
+                  width: 200,
+                  height: 200,
+                  loadingBuilder: (context, child, loadingProgress) {
+                    if (loadingProgress == null) return child;
+                    return const SizedBox(
+                      width: 200,
+                      height: 200,
+                      child: Center(child: CircularProgressIndicator()),
+                    );
+                  },
+                  errorBuilder: (context, error, stackTrace) {
+                    return const SizedBox(
+                      width: 200,
+                      height: 200,
+                      child: Center(child: Icon(Icons.qr_code, size: 80, color: Colors.grey)),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 24),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF16155D)),
+                  ),
+                  const SizedBox(width: 10),
+                  Text(
+                    'Awaiting customer payment...',
+                    style: TextStyle(fontSize: 13, color: Colors.grey.shade600, fontWeight: FontWeight.w500),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 30),
+              // Check Payment Status manual check button
+              OutlinedButton.icon(
+                onPressed: _checkPaymentStatus,
+                icon: _checkingStatus
+                    ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Icon(Icons.refresh, size: 16),
+                label: const Text('Check Payment Status'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFF16155D),
+                  side: const BorderSide(color: Color(0xFF16155D)),
+                  minimumSize: const Size(double.infinity, 44),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+              ),
+              const SizedBox(height: 12),
+              // Back to options
+              TextButton(
+                onPressed: () {
+                  _statusTimer?.cancel();
+                  setState(() {
+                    _isQrGenerated = false;
+                    _qrUrl = null;
+                  });
+                },
+                child: const Text('Change Payment Method', style: TextStyle(color: Colors.grey)),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _startPaymentPolling() {
+    _statusTimer?.cancel();
+    _statusTimer = Timer.periodic(const Duration(seconds: 4), (timer) {
+      _checkPaymentStatus();
+    });
+  }
+
+  Future<void> _checkPaymentStatus() async {
+    if (_checkingStatus) return;
+    final bookingId = _getVal('_id');
+    setState(() {
+      _checkingStatus = true;
+    });
+
+    final res = await ref.read(jobsProvider.notifier).getPaymentCollection(bookingId);
+    setState(() {
+      _checkingStatus = false;
+    });
+
+    if (res != null) {
+      final pc = res['payment_collection'];
+      final bookingStatus = res['status']?.toString().toLowerCase();
+      final pcStatus = pc?['status']?.toString().toLowerCase();
+
+      if (pcStatus == 'upi_completed' || pcStatus == 'verified') {
+        _statusTimer?.cancel();
+        if (mounted) {
+          setState(() {
+            _stepIndex = 4; // Move to Enter End OTP (Step 4)
+          });
+        }
+      } else if (bookingStatus == 'completed') {
+        _statusTimer?.cancel();
+        if (mounted) {
+          _showCompletionDialog();
+        }
+      }
+    }
+  }
+
+  void _showConfirmCashDialog(String bookingId) {
+    final amount = _getVal('payable_amount') ?? _getVal('amount') ?? 450;
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Confirm Cash Collection', style: TextStyle(fontWeight: FontWeight.bold)),
+        content: Text('Are you sure you have collected ₹$amount in cash from the customer?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              setState(() {
+                _checkingStatus = true;
+              });
+              final success = await ref.read(jobsProvider.notifier).collectCash(bookingId);
+              setState(() {
+                _checkingStatus = false;
+              });
+              if (success && mounted) {
+                setState(() {
+                  _stepIndex = 4; // Move to Enter End OTP (Step 4)
+                });
+              } else if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Failed to confirm cash collection. Please try again.'), backgroundColor: Colors.red),
+                );
+              }
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2E7D32)),
+            child: const Text('Yes, Collected', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     Widget activeContent;
@@ -1726,8 +2108,10 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
       activeContent = _buildStep1EnterStartOtpView();
     } else if (_stepIndex == 2) {
       activeContent = _buildStep2ServiceInProgressView();
+    } else if (_stepIndex == 3) {
+      activeContent = _buildStep4PaymentCollectionView(); // Step 3: COD Payment Collection
     } else {
-      activeContent = _buildStep3EnterEndOtpView();
+      activeContent = _buildStep3EnterEndOtpView(); // Step 4: Enter End OTP
     }
 
     final String serviceTitle = _getVal('service_name') ?? 'Service Details';

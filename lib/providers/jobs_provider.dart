@@ -238,6 +238,57 @@ class JobsNotifier extends StateNotifier<JobsState> {
       return false;
     }
   }
+
+  // Collect Cash (COD)
+  Future<bool> collectCash(String bookingId) async {
+    try {
+      final response = await _apiClient.dio.post(
+        '/api/bookings/$bookingId/collect-cash',
+        data: {
+          'gps_coordinates': [0.0, 0.0],
+          'device_id': 'partner_mobile'
+        },
+      );
+      if (response.statusCode == 200) {
+        await fetchAllJobs();
+        return true;
+      }
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // Request UPI QR payment link
+  Future<Map<String, dynamic>?> requestUpi(String bookingId) async {
+    try {
+      final response = await _apiClient.dio.post(
+        '/api/bookings/$bookingId/request-upi',
+      );
+      if (response.statusCode == 200 && response.data != null) {
+        await fetchAllJobs();
+        return response.data;
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // Fetch Booking payment status
+  Future<Map<String, dynamic>?> getPaymentCollection(String bookingId) async {
+    try {
+      final response = await _apiClient.dio.get(
+        '/api/bookings/$bookingId/payment-collection',
+      );
+      if (response.statusCode == 200 && response.data != null) {
+        return response.data;
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
 }
 
 final jobsProvider = StateNotifierProvider<JobsNotifier, JobsState>((ref) {

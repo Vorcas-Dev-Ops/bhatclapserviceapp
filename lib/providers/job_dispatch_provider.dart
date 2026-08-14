@@ -44,19 +44,127 @@ class JobRequestModel {
     final loc = json['location'] ?? {};
     final bId = json['booking_id'];
     final bookingIdStr = bId is Map ? (bId['_id'] ?? '').toString() : bId?.toString() ?? '';
+
+    String resolvedServiceName = '';
     
+    // 1. Direct service_name field if not default placeholder
+    final directName = (json['service_name'] ?? json['subservice_name'] ?? json['title'] ?? json['name'])?.toString().trim() ?? '';
+    if (directName.isNotEmpty && directName != 'New Service Request') {
+      resolvedServiceName = directName;
+    }
+
+    // 2. Inspect nested booking_id object if populated
+    if (resolvedServiceName.isEmpty && bId is Map) {
+      final bName = (bId['service_name'] ?? bId['variant_name'] ?? bId['subservice_name'] ?? bId['title'] ?? bId['name'])?.toString().trim() ?? '';
+      if (bName.isNotEmpty && bName != 'New Service Request') {
+        resolvedServiceName = bName;
+      }
+
+      if (resolvedServiceName.isEmpty) {
+        final items = bId['items'];
+        if (items is List && items.isNotEmpty) {
+          final first = items.first;
+          if (first is Map) {
+            final subservice = first['subservice_id'];
+            if (subservice is Map) {
+              final sName = (subservice['subservice_name'] ?? subservice['name'] ?? subservice['title'])?.toString().trim() ?? '';
+              if (sName.isNotEmpty) resolvedServiceName = sName;
+            }
+            if (resolvedServiceName.isEmpty) {
+              final iName = (first['subservice_name'] ?? first['name'] ?? first['title'])?.toString().trim() ?? '';
+              if (iName.isNotEmpty) resolvedServiceName = iName;
+            }
+          }
+        }
+      }
+
+      if (resolvedServiceName.isEmpty) {
+        final subservice = bId['subservice_id'];
+        if (subservice is Map) {
+          final sName = (subservice['subservice_name'] ?? subservice['name'] ?? subservice['title'])?.toString().trim() ?? '';
+          if (sName.isNotEmpty) resolvedServiceName = sName;
+        }
+      }
+
+      if (resolvedServiceName.isEmpty && bId['category_name'] != null) {
+        final cName = bId['category_name'].toString().trim();
+        if (cName.isNotEmpty) resolvedServiceName = cName;
+      }
+    }
+
+    // 3. Inspect direct subservice_id object
+    if (resolvedServiceName.isEmpty) {
+      final subservice = json['subservice_id'];
+      if (subservice is Map) {
+        final sName = (subservice['subservice_name'] ?? subservice['name'] ?? subservice['title'])?.toString().trim() ?? '';
+        if (sName.isNotEmpty) resolvedServiceName = sName;
+      }
+    }
+
+    // 4. Inspect direct items array
+    if (resolvedServiceName.isEmpty) {
+      final items = json['items'];
+      if (items is List && items.isNotEmpty) {
+        final first = items.first;
+        if (first is Map) {
+          final iName = (first['subservice_name'] ?? first['name'] ?? first['title'])?.toString().trim() ?? '';
+          if (iName.isNotEmpty) resolvedServiceName = iName;
+        }
+      }
+    }
+
+    // 5. Category fallback
+    if (resolvedServiceName.isEmpty && json['category_name'] != null) {
+      final cName = json['category_name'].toString().trim();
+      if (cName.isNotEmpty) resolvedServiceName = cName;
+    }
+
+    if (resolvedServiceName.isEmpty) {
+      resolvedServiceName = directName.isNotEmpty ? directName : 'Service Request';
+    }
+
+    // Amount extraction
+    double resolvedAmount = (json['amount'] as num?)?.toDouble() ?? 0.0;
+    if (resolvedAmount == 0.0 && json['payable_amount'] != null) {
+      resolvedAmount = (json['payable_amount'] as num).toDouble();
+    }
+    if (resolvedAmount == 0.0 && bId is Map) {
+      resolvedAmount = (bId['payable_amount'] ?? bId['total_amount'] ?? 0.0 as num).toDouble();
+    }
+
+    // Address extraction
+    String resolvedAddress = loc['address']?.toString() ?? '';
+    String resolvedCity = loc['city']?.toString() ?? '';
+    String resolvedPincode = loc['pincode']?.toString() ?? '';
+    if (resolvedAddress.isEmpty && bId is Map) {
+      final addrObj = bId['address_id'];
+      if (addrObj is Map) {
+        resolvedAddress = (addrObj['address_line'] ?? addrObj['address_line_1'] ?? addrObj['area_locality'] ?? '').toString();
+        resolvedCity = (addrObj['city'] ?? '').toString();
+        resolvedPincode = (addrObj['pincode'] ?? '').toString();
+      }
+    }
+
+    // Schedule extraction
+    String resolvedDate = json['scheduled_at']?.toString() ?? '';
+    String resolvedTime = json['booking_time']?.toString() ?? '';
+    if (bId is Map) {
+      if (resolvedDate.isEmpty) resolvedDate = (bId['selected_date'] ?? bId['scheduled_at'] ?? '').toString();
+      if (resolvedTime.isEmpty) resolvedTime = (bId['selected_time_slot'] ?? bId['booking_time'] ?? '').toString();
+    }
+
     return JobRequestModel(
       requestId: json['request_id'] ?? json['_id'] ?? '',
       bookingId: bookingIdStr,
-      displayId: json['display_id'] ?? '',
-      serviceName: json['service_name'] ?? '',
-      amount: (json['amount'] as num?)?.toDouble() ?? 0.0,
-      address: loc['address'] ?? '',
-      city: loc['city'] ?? '',
-      pincode: loc['pincode'] ?? '',
-      distance: loc['distance'] ?? '',
-      scheduledAt: json['scheduled_at'] ?? '',
-      bookingTime: json['booking_time'] ?? '',
+      displayId: json['display_id'] ?? (bId is Map ? bId['booking_id'] : '') ?? '',
+      serviceName: resolvedServiceName,
+      amount: resolvedAmount,
+      address: resolvedAddress,
+      city: resolvedCity,
+      pincode: resolvedPincode,
+      distance: loc['distance']?.toString() ?? '',
+      scheduledAt: resolvedDate,
+      bookingTime: resolvedTime,
       expiresAt: json['expires_at'] != null ? DateTime.parse(json['expires_at']) : DateTime.now().add(const Duration(minutes: 5)),
     );
   }
@@ -362,36 +470,55 @@ class JobDispatchNotifier extends StateNotifier<DispatchState> {
 
   // Accept incoming job request
   Future<bool> acceptJob(String requestId) async {
+    if (requestId.trim().isEmpty) {
+      state = state.copyWith(error: 'Invalid request ID');
+      return false;
+    }
     try {
       final response = await _apiClient.dio.post(
         '/api/providers/job-requests/$requestId/accept',
       );
       if (response.statusCode == 200) {
-        state = state.copyWith(clearActiveJob: true);
-        _ref.read(jobsProvider.notifier).fetchAllJobs();
+        state = state.copyWith(clearActiveJob: true, error: null);
+        await _ref.read(jobsProvider.notifier).fetchAllJobs();
         return true;
       }
+      final msg = response.data is Map ? (response.data['message'] ?? response.data['error'])?.toString() : null;
+      state = state.copyWith(error: msg ?? 'Failed to accept job');
       return false;
     } on DioException catch (e) {
-      state = state.copyWith(error: e.response?.data['message'] ?? 'Failed to accept job');
+      final msg = e.response?.data is Map
+          ? (e.response?.data['message']?.toString() ?? e.response?.data['error']?.toString())
+          : null;
+      state = state.copyWith(error: msg ?? 'Failed to accept job');
+      return false;
+    } catch (e) {
+      state = state.copyWith(error: 'Failed to accept job: $e');
       return false;
     }
   }
 
   // Reject incoming job request
   Future<bool> rejectJob(String requestId) async {
+    if (requestId.trim().isEmpty) return false;
     try {
       final response = await _apiClient.dio.post(
         '/api/providers/job-requests/$requestId/reject',
       );
       if (response.statusCode == 200) {
-        state = state.copyWith(clearActiveJob: true);
-        _ref.read(jobsProvider.notifier).fetchAllJobs();
+        state = state.copyWith(clearActiveJob: true, error: null);
+        await _ref.read(jobsProvider.notifier).fetchAllJobs();
         return true;
       }
       return false;
     } on DioException catch (e) {
-      state = state.copyWith(error: e.response?.data['message'] ?? 'Failed to reject job');
+      final msg = e.response?.data is Map
+          ? (e.response?.data['message']?.toString() ?? e.response?.data['error']?.toString())
+          : null;
+      state = state.copyWith(error: msg ?? 'Failed to reject job');
+      return false;
+    } catch (e) {
+      state = state.copyWith(error: 'Failed to reject job: $e');
       return false;
     }
   }

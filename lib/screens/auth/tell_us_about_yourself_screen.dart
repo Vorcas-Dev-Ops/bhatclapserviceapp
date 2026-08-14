@@ -116,11 +116,13 @@ class _TellUsAboutYourselfScreenState extends ConsumerState<TellUsAboutYourselfS
   }
 
   Future<void> _selectDate(BuildContext context) async {
+    final now = DateTime.now();
+    final eighteenYearsAgo = DateTime(now.year - 18, now.month, now.day);
     final DateTime? picked = await showDatePicker(
       context: context,
-      initialDate: DateTime.now().subtract(const Duration(days: 365 * 18)),
+      initialDate: eighteenYearsAgo,
       firstDate: DateTime(1900),
-      lastDate: DateTime.now(),
+      lastDate: eighteenYearsAgo,
       locale: const Locale('en', 'GB'),
       builder: (context, child) {
         return Theme(
@@ -285,7 +287,33 @@ class _TellUsAboutYourselfScreenState extends ConsumerState<TellUsAboutYourselfS
                           if (value == null || value.trim().isEmpty) {
                             return 'Please enter your date of birth';
                           }
-                          if (value.length < 10) {
+                          if (value.trim().length < 10) {
+                            return 'Please enter a valid date (DD/MM/YYYY)';
+                          }
+                          try {
+                            final parts = value.trim().split('/');
+                            if (parts.length != 3) {
+                              return 'Please enter a valid date (DD/MM/YYYY)';
+                            }
+                            final day = int.parse(parts[0]);
+                            final month = int.parse(parts[1]);
+                            final year = int.parse(parts[2]);
+
+                            if (day < 1 || day > 31 || month < 1 || month > 12 || year < 1900) {
+                              return 'Please enter a valid date (DD/MM/YYYY)';
+                            }
+
+                            final dob = DateTime(year, month, day);
+                            final now = DateTime.now();
+                            var age = now.year - dob.year;
+                            if (now.month < dob.month || (now.month == dob.month && now.day < dob.day)) {
+                              age--;
+                            }
+
+                            if (age < 18) {
+                              return 'You must be at least 18 years old to register as a provider';
+                            }
+                          } catch (_) {
                             return 'Please enter a valid date (DD/MM/YYYY)';
                           }
                           return null;

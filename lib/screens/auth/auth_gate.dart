@@ -107,7 +107,7 @@ class _InitialProfileCheckGateState extends ConsumerState<InitialProfileCheckGat
                   height: 48,
                   child: ElevatedButton(
                     onPressed: () {
-                      ref.read(providerProfileProvider.notifier).fetchProfile();
+                      ref.read(authProvider.notifier).logout();
                     },
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF16155D),
@@ -116,7 +116,7 @@ class _InitialProfileCheckGateState extends ConsumerState<InitialProfileCheckGat
                       ),
                     ),
                     child: const Text(
-                      'Retry',
+                      'Login Again',
                       style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
                     ),
                   ),

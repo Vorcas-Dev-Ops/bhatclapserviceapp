@@ -295,7 +295,7 @@ class _JobsScreenState extends ConsumerState<JobsScreen> {
     final ongoingCount = jobsState.bookings.where((b) {
       if (b is! Map) return false;
       final status = (b['status'] ?? '').toString().toLowerCase();
-      return ['accepted', 'assigned', 'confirmed', 'scheduled', 'on_the_way', 'arrived', 'reached', 'waiting_start_otp', 'in_progress', 'started', 'ongoing', 'waiting_end_otp'].contains(status);
+      return ['on_the_way', 'arrived', 'reached', 'waiting_start_otp', 'in_progress', 'started', 'ongoing', 'waiting_end_otp'].contains(status);
     }).length;
 
     final newCount = jobsState.newJobs.length;
@@ -583,7 +583,7 @@ class _JobsScreenState extends ConsumerState<JobsScreen> {
     final jobsState = ref.watch(jobsProvider);
     final upcomingList = jobsState.bookings.where((b) {
       final status = (b['status'] ?? '').toString().toLowerCase();
-      return ['accepted', 'assigned', 'confirmed'].contains(status);
+      return ['accepted', 'assigned', 'confirmed', 'scheduled'].contains(status);
     }).toList();
 
     if (upcomingList.isEmpty) {
@@ -658,7 +658,7 @@ class _JobsScreenState extends ConsumerState<JobsScreen> {
     final ongoingList = jobsState.bookings.where((b) {
       if (b is! Map) return false;
       final status = (b['status'] ?? '').toString().toLowerCase();
-      return ['accepted', 'assigned', 'confirmed', 'scheduled', 'on_the_way', 'arrived', 'reached', 'waiting_start_otp', 'in_progress', 'started', 'ongoing', 'waiting_end_otp'].contains(status);
+      return ['on_the_way', 'arrived', 'reached', 'waiting_start_otp', 'in_progress', 'started', 'ongoing', 'waiting_end_otp'].contains(status);
     }).toList();
 
     if (ongoingList.isEmpty) {

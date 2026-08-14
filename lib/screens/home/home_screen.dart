@@ -287,6 +287,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       context: context,
       isDismissible: false,
       enableDrag: false,
+      backgroundColor: Colors.white,
+      barrierColor: Colors.black.withOpacity(0.5),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
@@ -387,7 +389,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         child: OutlinedButton(
                           onPressed: () async {
                             Navigator.pop(context);
-                            await ref.read(jobDispatchProvider.notifier).rejectJob(job.requestId);
+                            final targetId = job.requestId.isNotEmpty ? job.requestId : job.bookingId;
+                            await ref.read(jobDispatchProvider.notifier).rejectJob(targetId);
                           },
                           style: OutlinedButton.styleFrom(
                             side: const BorderSide(color: Colors.red),
@@ -409,10 +412,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         child: ElevatedButton(
                           onPressed: () async {
                             Navigator.pop(context);
-                            final success = await ref.read(jobDispatchProvider.notifier).acceptJob(job.requestId);
-                            if (success && mounted) {
+                            final targetId = job.requestId.isNotEmpty ? job.requestId : job.bookingId;
+                            final success = await ref.read(jobDispatchProvider.notifier).acceptJob(targetId);
+                            if (mounted) {
                               if (!context.mounted) return;
-                              showTopPillToast(context, 'Job accepted! Navigate to Jobs tab for instructions.');
+                              if (success) {
+                                showTopPillToast(context, 'Job accepted! Navigate to Jobs tab for instructions.');
+                              } else {
+                                final errorMsg = ref.read(jobDispatchProvider).error ?? 'Failed to accept job. Please try again.';
+                                showTopPillToast(context, errorMsg, isError: true);
+                              }
                             }
                           },
                           style: ElevatedButton.styleFrom(
@@ -1154,8 +1163,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               upcomingAndOngoing.length > 2 ? 2 : upcomingAndOngoing.length,
               (index) {
                 final booking = upcomingAndOngoing[index];
-                final isOngoing = ['started', 'waiting_start_otp', 'waiting_end_otp', 'in_progress']
-                    .contains(booking['status']);
+                final isOngoing = ['on_the_way', 'arrived', 'reached', 'started', 'waiting_start_otp', 'waiting_end_otp', 'in_progress', 'ongoing']
+                    .contains((booking['status'] ?? '').toString().toLowerCase());
                 final status = isOngoing ? 'ONGOING' : 'UPCOMING';
                 final subservice = booking['subservice_id'] ?? {};
                 final serviceName = subservice['subservice_name'] ?? booking['variant_name'] ?? 'Cleaning Service';
@@ -1498,13 +1507,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                     child: ElevatedButton(
                                       onPressed: () async {
                                         final success = await ref.read(jobsProvider.notifier).acceptJob(job.requestId);
-                                        if (success && mounted) {
-                                          ScaffoldMessenger.of(context).showSnackBar(
-                                            const SnackBar(
-                                              content: Text('Job request accepted successfully!'),
-                                              backgroundColor: Colors.green,
-                                            ),
-                                          );
+                                        if (mounted) {
+                                          if (success) {
+                                            ScaffoldMessenger.of(context).showSnackBar(
+                                              const SnackBar(
+                                                content: Text('Job request accepted successfully!'),
+                                                backgroundColor: Colors.green,
+                                              ),
+                                            );
+                                          } else {
+                                            final err = ref.read(jobsProvider).errorMessage ?? 'Failed to accept job';
+                                            ScaffoldMessenger.of(context).showSnackBar(
+                                              SnackBar(
+                                                content: Text(err),
+                                                backgroundColor: Colors.red,
+                                              ),
+                                            );
+                                          }
                                         }
                                       },
                                       style: ElevatedButton.styleFrom(

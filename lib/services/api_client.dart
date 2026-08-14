@@ -14,6 +14,43 @@ class ApiClient {
     }
     return url;
   }();
+  Future<String?>? _refreshFuture;
+
+  Future<String?> _performTokenRefresh() async {
+    final refreshToken = await _tokenStorage.getRefreshToken();
+    if (refreshToken == null || refreshToken.isEmpty) {
+      return null;
+    }
+    try {
+      final refreshResponse = await Dio(BaseOptions(baseUrl: baseUrl)).post(
+        '/api/users/refresh',
+        options: Options(
+          headers: {
+            'Cookie': 'jwt=$refreshToken',
+          },
+        ),
+      );
+
+      if (refreshResponse.statusCode == 200) {
+        final newAccessToken = refreshResponse.data['token'];
+        final rotatedRefreshToken = _extractRefreshTokenFromResponse(refreshResponse) ?? refreshToken;
+        final userId = await _tokenStorage.getUserId() ?? '';
+        final userRole = await _tokenStorage.getUserRole() ?? '';
+        
+        await _tokenStorage.saveTokens(
+          accessToken: newAccessToken,
+          refreshToken: rotatedRefreshToken,
+          userId: userId,
+          userRole: userRole,
+        );
+        return newAccessToken;
+      }
+    } catch (refreshErr) {
+      await _tokenStorage.clear();
+    }
+    return null;
+  }
+
   ApiClient() {
     dio = Dio(
       BaseOptions(
@@ -40,13 +77,12 @@ class ApiClient {
           // Check if there is a set-cookie header containing a rotated jwt token
           final newRefreshToken = _extractRefreshTokenFromResponse(response);
           if (newRefreshToken != null) {
-            final currentAccessToken = await _tokenStorage.getAccessToken() ?? '';
+            final accessToken = await _tokenStorage.getAccessToken() ?? '';
             final userId = await _tokenStorage.getUserId() ?? '';
             final userRole = await _tokenStorage.getUserRole() ?? '';
-            
             // Save rotated refresh token
             await _tokenStorage.saveTokens(
-              accessToken: currentAccessToken,
+              accessToken: accessToken,
               refreshToken: newRefreshToken,
               userId: userId,
               userRole: userRole,
@@ -61,51 +97,28 @@ class ApiClient {
               e.requestOptions.path != '/api/users/login' &&
               e.requestOptions.path != '/api/users/verify-otp') {
             
-            final refreshToken = await _tokenStorage.getRefreshToken();
-            if (refreshToken != null && refreshToken.isNotEmpty) {
+            _refreshFuture ??= _performTokenRefresh();
+            final newAccessToken = await _refreshFuture;
+            _refreshFuture = null;
+
+            if (newAccessToken != null && newAccessToken.isNotEmpty) {
+              // Retry original request with the new access token
+              final cloneReq = e.requestOptions;
+              cloneReq.headers['Authorization'] = 'Bearer $newAccessToken';
+              
               try {
-                // Try to refresh token using refresh endpoint with cookie header
-                final refreshResponse = await Dio(BaseOptions(baseUrl: baseUrl)).post(
-                  '/api/users/refresh',
+                final response = await dio.request(
+                  cloneReq.path,
+                  data: cloneReq.data,
+                  queryParameters: cloneReq.queryParameters,
                   options: Options(
-                    headers: {
-                      'Cookie': 'jwt=$refreshToken',
-                    },
+                    method: cloneReq.method,
+                    headers: cloneReq.headers,
                   ),
                 );
-
-                if (refreshResponse.statusCode == 200) {
-                  final newAccessToken = refreshResponse.data['token'];
-                  final rotatedRefreshToken = _extractRefreshTokenFromResponse(refreshResponse) ?? refreshToken;
-                  final userId = await _tokenStorage.getUserId() ?? '';
-                  final userRole = await _tokenStorage.getUserRole() ?? '';
-                  
-                  // Save updated credentials
-                  await _tokenStorage.saveTokens(
-                    accessToken: newAccessToken,
-                    refreshToken: rotatedRefreshToken,
-                    userId: userId,
-                    userRole: userRole,
-                  );
-
-                  // Retry original request with the new access token
-                  final cloneReq = e.requestOptions;
-                  cloneReq.headers['Authorization'] = 'Bearer $newAccessToken';
-                  
-                  final response = await dio.request(
-                    cloneReq.path,
-                    data: cloneReq.data,
-                    queryParameters: cloneReq.queryParameters,
-                    options: Options(
-                      method: cloneReq.method,
-                      headers: cloneReq.headers,
-                    ),
-                  );
-                  return handler.resolve(response);
-                }
-              } catch (refreshErr) {
-                // Refresh failed: token expired or deleted on backend. Log out user.
-                await _tokenStorage.clear();
+                return handler.resolve(response);
+              } catch (_) {
+                return handler.next(e);
               }
             }
           }
