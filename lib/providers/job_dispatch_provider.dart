@@ -450,7 +450,20 @@ class JobDispatchNotifier extends StateNotifier<DispatchState> {
         });
       }
 
-      // Backup: update live coordinates in database via REST API Gateway
+      // Backup & OSRM Engine: update live coordinates in database & Redis via REST API Gateway
+      try {
+        await _apiClient.dio.post(
+          '/api/providers/location/update',
+          data: {
+            'lat': position.latitude,
+            'lng': position.longitude,
+            'heading': position.heading,
+            'speed': position.speed,
+            'accuracy': position.accuracy,
+          },
+        );
+      } catch (_) {}
+
       try {
         await _apiClient.dio.patch(
           '/api/providers/live-location',

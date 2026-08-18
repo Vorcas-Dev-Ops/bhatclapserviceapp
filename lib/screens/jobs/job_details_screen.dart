@@ -9,6 +9,7 @@ import 'package:partner_app/providers/job_dispatch_provider.dart';
 import 'package:partner_app/providers/jobs_provider.dart';
 import 'package:partner_app/utils/address_utils.dart';
 import 'package:partner_app/screens/chat/partner_chat_screen.dart';
+import 'package:partner_app/screens/jobs/service_completion_payment_modal.dart';
 
 class JobDetailsScreen extends ConsumerStatefulWidget {
   final dynamic booking;
@@ -85,14 +86,16 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
       _stepIndex = 1;
     } else if (status == 'in_progress') {
       _stepIndex = 2;
-    } else if (status == 'waiting_end_otp') {
+    } else if (status == 'waiting_end_otp' || status == 'service_completed' || status == 'completed') {
       final isCOD = _isCOD();
       final pc = _getVal('payment_collection');
       final pcStatus = (pc != null && pc is Map) ? (pc['status'] ?? '').toString().toLowerCase() : '';
-      if (isCOD && pcStatus != 'cash_collected' && pcStatus != 'upi_completed') {
-        _stepIndex = 3; // Move to COD Payment Collection (Step 3)
+      final pStatus = (_getVal('payment_status') ?? '').toString().toLowerCase();
+
+      if (isCOD && pcStatus != 'cash_collected' && pcStatus != 'upi_completed' && pStatus != 'paid' && pStatus != 'completed') {
+        _stepIndex = 3; // Move to COD Payment Collection only if payment is NOT yet collected
       } else {
-        _stepIndex = 4; // Move to Enter End OTP (Step 4)
+        _stepIndex = 4; // Move directly to Enter End OTP
       }
     }
   }
@@ -380,7 +383,18 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
     final bookingId = _getVal('_id');
     final success = await ref.read(jobsProvider.notifier).verifyEndOtp(bookingId, otpCode);
     if (success && mounted) {
-      _showCompletionDialog();
+      final isCOD = _isCOD();
+      final pc = _getVal('payment_collection');
+      final pcStatus = (pc != null && pc is Map) ? (pc['status'] ?? '').toString().toLowerCase() : '';
+      final pStatus = (_getVal('payment_status') ?? '').toString().toLowerCase();
+
+      if (isCOD && pcStatus != 'cash_collected' && pcStatus != 'upi_completed' && pStatus != 'paid' && pStatus != 'completed') {
+        _showCodCashCollectionDialog(() {
+          _showCompletionDialog();
+        });
+      } else {
+        _showCompletionDialog();
+      }
     } else if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Incorrect OTP or verification failed'), backgroundColor: Colors.red),
@@ -518,71 +532,17 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
       return;
     }
 
-    final amount = _getVal('payable_amount') ?? _getVal('amount') ?? 450;
+    final rawAmount = _getVal('payable_amount') ?? _getVal('amount') ?? 450;
+    final double amount = (rawAmount is num) ? rawAmount.toDouble() : (double.tryParse(rawAmount.toString()) ?? 450.0);
+    final bookingId = (_getVal('_id') ?? _getVal('booking_id') ?? '').toString();
+    final customerName = _getCustomerName();
 
-    showDialog(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          title: Row(
-            children: const [
-              Icon(Icons.payments_outlined, color: Color(0xFFE65100)),
-              SizedBox(width: 8),
-              Text('Collect Cash (COD)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-            ],
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'This booking is Cash on Delivery (COD).',
-                style: TextStyle(fontSize: 14, color: Colors.black87, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 10),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFFF3E0),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFFFFB74D)),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.warning_amber_rounded, color: Color(0xFFE65100), size: 20),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'Have you collected ₹$amount in cash from the customer?',
-                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFFBF360C)),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel', style: TextStyle(color: Colors.grey, fontWeight: FontWeight.w600)),
-            ),
-            ElevatedButton.icon(
-              onPressed: () {
-                Navigator.pop(context);
-                onConfirmed();
-              },
-              icon: const Icon(Icons.check_circle_outline, color: Colors.white, size: 18),
-              label: Text('Yes, Collected ₹$amount', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF2E7D32),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-            ),
-          ],
-        );
-      },
+    ServiceCompletionPaymentModal.show(
+      context,
+      bookingId: bookingId,
+      amount: amount,
+      customerName: customerName,
+      onPaymentCompleted: onConfirmed,
     );
   }
 
@@ -623,6 +583,60 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
         ],
       ),
       child: child,
+    );
+  }
+
+  Widget _buildTravelBufferCard() {
+    final rawTravel = _getVal('travel_minutes') ?? _getVal('travel_time') ?? 5;
+    final rawBuffer = _getVal('safety_buffer_minutes') ?? _getVal('buffer_minutes') ?? 10;
+    final int travelMins = (rawTravel is num) ? rawTravel.toInt() : (int.tryParse(rawTravel.toString()) ?? 5);
+    final int bufferMins = (rawBuffer is num) ? rawBuffer.toInt() : (int.tryParse(rawBuffer.toString()) ?? 10);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      margin: const EdgeInsets.only(bottom: 20),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF4F5FF),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFC5CAE9)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: const BoxDecoration(
+              color: Color(0xFF16155D),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.directions_car_rounded, color: Colors.white, size: 18),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Travel ($travelMins mins) + Prep Buffer ($bufferMins mins)',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF16155D),
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Sequential schedule buffer calculated via live OSRM navigation.',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Colors.grey.shade700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -794,6 +808,7 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
                     ],
                   ),
                 ),
+                _buildTravelBufferCard(),
                 _buildCardContainer(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -1651,22 +1666,16 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
                 width: double.infinity,
                 height: 54,
                 child: ElevatedButton.icon(
-                  onPressed: () {
-                    _showCodCashCollectionDialog(() async {
-                      final afterPhotosToSend = ['data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='];
-                      final success = await ref
-                          .read(jobsProvider.notifier)
-                          .finishService(_getVal('_id'), afterPhotosToSend);
-                      if (success && mounted) {
-                        setState(() {
-                          if (_isCOD()) {
-                            _stepIndex = 3; // Move to COD Payment Collection (Step 3)
-                          } else {
-                            _stepIndex = 4; // Move to Enter End OTP (Step 4)
-                          }
-                        });
-                      }
-                    });
+                  onPressed: () async {
+                    final afterPhotosToSend = ['data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='];
+                    await ref
+                        .read(jobsProvider.notifier)
+                        .finishService(_getVal('_id'), afterPhotosToSend);
+                    if (mounted) {
+                      setState(() {
+                        _stepIndex = 4; // Move directly to Enter End OTP (Step 4)
+                      });
+                    }
                   },
                   icon: const Icon(
                     Icons.check_circle_outline,
@@ -1829,7 +1838,6 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
 
   Widget _buildStep4PaymentCollectionView() {
     final amount = _getVal('payable_amount') ?? _getVal('amount') ?? 450;
-    final bookingId = _getVal('_id');
 
     return Expanded(
       child: SingleChildScrollView(
@@ -1878,29 +1886,25 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
             if (!_isQrGenerated) ...[
               // Option 1: QR Payment
               ElevatedButton.icon(
-                onPressed: () async {
-                  setState(() {
-                    _checkingStatus = true;
-                  });
-                  final res = await ref.read(jobsProvider.notifier).requestUpi(bookingId);
-                  if (res != null && res['payment_link'] != null && res['payment_link']['url'] != null) {
-                    final linkUrl = res['payment_link']['url'].toString();
-                    setState(() {
-                      _isQrGenerated = true;
-                      _qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${Uri.encodeComponent(linkUrl)}';
-                      _checkingStatus = false;
-                    });
-                    _startPaymentPolling();
-                  } else {
-                    setState(() {
-                      _checkingStatus = false;
-                    });
-                    if (mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Failed to generate UPI QR code. Please collect cash instead.'), backgroundColor: Colors.red),
-                      );
-                    }
-                  }
+                onPressed: () {
+                  final rawAmount = _getVal('payable_amount') ?? _getVal('amount') ?? 450;
+                  final double amount = (rawAmount is num) ? rawAmount.toDouble() : (double.tryParse(rawAmount.toString()) ?? 450.0);
+                  final bId = (_getVal('_id') ?? _getVal('booking_id') ?? widget.bookingId ?? '').toString();
+                  final customerName = _getCustomerName();
+
+                  ServiceCompletionPaymentModal.show(
+                    context,
+                    bookingId: bId,
+                    amount: amount,
+                    customerName: customerName,
+                    onPaymentCompleted: () {
+                      if (mounted) {
+                        setState(() {
+                          _stepIndex = 4; // Move to Enter End OTP
+                        });
+                      }
+                    },
+                  );
                 },
                 icon: const Icon(Icons.qr_code_2, color: Colors.white),
                 label: const Text('Generate UPI QR Code', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
@@ -1914,8 +1918,25 @@ class _JobDetailsScreenState extends ConsumerState<JobDetailsScreen> {
               const SizedBox(height: 16),
               // Option 2: Collect Cash
               ElevatedButton.icon(
-                onPressed: () async {
-                  _showConfirmCashDialog(bookingId);
+                onPressed: () {
+                  final rawAmount = _getVal('payable_amount') ?? _getVal('amount') ?? 450;
+                  final double amount = (rawAmount is num) ? rawAmount.toDouble() : (double.tryParse(rawAmount.toString()) ?? 450.0);
+                  final bId = (_getVal('_id') ?? _getVal('booking_id') ?? widget.bookingId ?? '').toString();
+                  final customerName = _getCustomerName();
+
+                  ServiceCompletionPaymentModal.show(
+                    context,
+                    bookingId: bId,
+                    amount: amount,
+                    customerName: customerName,
+                    onPaymentCompleted: () {
+                      if (mounted) {
+                        setState(() {
+                          _stepIndex = 4; // Move to Enter End OTP
+                        });
+                      }
+                    },
+                  );
                 },
                 icon: const Icon(Icons.money, color: Colors.white),
                 label: const Text('Cash Collected', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),

@@ -410,6 +410,95 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
   }
 
+  // Request Account Deletion (Provider Audit Gate Check)
+  Future<Map<String, dynamic>> requestAccountDeletion({String? reason}) async {
+    try {
+      final response = await _apiClient.dio.post(
+        '/api/users/deletion/initiate',
+        data: {
+          if (reason != null && reason.trim().isNotEmpty) 'reason': reason.trim(),
+        },
+      );
+
+      final data = response.data;
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        return {
+          'success': true,
+          'status': data['status'],
+          'scheduled_deletion_date': data['scheduled_deletion_date'] ?? data['scheduled_date'],
+          'blocking_obligations': data['blocking_obligations'] is List ? List<String>.from(data['blocking_obligations']) : [],
+          'message': data['message'] ?? 'Account deletion request submitted',
+        };
+      }
+      return {'success': false, 'message': data['message'] ?? 'Failed to request account deletion'};
+    } on DioException catch (e) {
+      final resData = e.response?.data;
+      return {
+        'success': false,
+        'status': resData?['status'],
+        'blocking_obligations': resData?['blocking_obligations'] is List ? List<String>.from(resData['blocking_obligations']) : [],
+        'message': resData?['message'] ?? 'Error submitting account deletion request',
+      };
+    } catch (e) {
+      return {'success': false, 'message': e.toString()};
+    }
+  }
+
+  // Cancel Account Deletion
+  Future<Map<String, dynamic>> cancelAccountDeletion() async {
+    try {
+      final response = await _apiClient.dio.delete('/api/users/me/delete-request');
+      if (response.statusCode == 200) {
+        return {'success': true, 'message': response.data['message'] ?? 'Deletion request cancelled successfully'};
+      }
+      return {'success': false, 'message': response.data['message'] ?? 'Failed to cancel deletion request'};
+    } on DioException catch (e) {
+      return {'success': false, 'message': e.response?.data['message'] ?? 'Error cancelling deletion request'};
+    } catch (e) {
+      return {'success': false, 'message': e.toString()};
+    }
+  }
+
+  // Initiate Phone Change (Send OTP)
+  Future<Map<String, dynamic>> initiatePhoneChange(String newPhone) async {
+    try {
+      final response = await _apiClient.dio.post(
+        '/api/users/phone-change/initiate',
+        data: {'newPhone': newPhone},
+      );
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        return {'success': true, 'message': response.data['message'] ?? 'OTP sent to new phone number'};
+      }
+      return {'success': false, 'message': response.data['message'] ?? 'Failed to initiate phone change'};
+    } on DioException catch (e) {
+      return {'success': false, 'message': e.response?.data?['message'] ?? 'Network error initiating phone change'};
+    } catch (e) {
+      return {'success': false, 'message': e.toString()};
+    }
+  }
+
+  // Verify Phone Change (Confirm OTP & Update)
+  Future<Map<String, dynamic>> verifyPhoneChange(String newPhone, String otp) async {
+    try {
+      final response = await _apiClient.dio.post(
+        '/api/users/phone-change/verify',
+        data: {
+          'newPhone': newPhone,
+          'otp': otp,
+        },
+      );
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        await checkAuth();
+        return {'success': true, 'message': response.data['message'] ?? 'Phone number updated successfully!'};
+      }
+      return {'success': false, 'message': response.data['message'] ?? 'Invalid OTP code'};
+    } on DioException catch (e) {
+      return {'success': false, 'message': e.response?.data?['message'] ?? 'Error verifying phone change OTP'};
+    } catch (e) {
+      return {'success': false, 'message': e.toString()};
+    }
+  }
+
   // Sign out user
   Future<void> logout() async {
     try {

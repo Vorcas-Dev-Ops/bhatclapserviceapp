@@ -16,6 +16,7 @@ import 'package:partner_app/screens/shop/shop_screen.dart';
 import 'package:partner_app/screens/profile/subscription_screen.dart';
 import 'package:partner_app/screens/profile/help_support_screen.dart';
 import 'package:partner_app/screens/profile/privacy_policy_screen.dart';
+import 'package:partner_app/screens/profile/provider_phone_change_modal.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
@@ -249,7 +250,15 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                           color: Color(0xFF16155D),
                           size: 18,
                         ),
-                        onPressed: () {},
+                        onPressed: () {
+                          ProviderPhoneChangeModal.show(
+                            context,
+                            currentPhone: phone,
+                            onPhoneUpdated: () {
+                              ref.read(providerProfileProvider.notifier).fetchProfile();
+                            },
+                          );
+                        },
                       ),
                     ],
                   ),

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:dio/dio.dart';
 import 'package:partner_app/providers/api_providers.dart';
 import '../../widgets/razorpay_gateway_modal.dart';
 
@@ -82,23 +83,36 @@ class _LeadPackageStoreScreenState extends ConsumerState<LeadPackageStoreScreen>
   }
 
   Future<void> _buyPackage(Map<String, dynamic> pkg) async {
-    final title = pkg['title'] ?? 'Lead Package';
+    final title = pkg['name'] ?? pkg['title'] ?? 'Lead Package';
     final price = (pkg['price'] ?? 499).toDouble();
-    final pkgId = pkg['id'] ?? pkg['_id'] ?? 'pkg_10';
+    final pkgId = pkg['_id'] ?? pkg['id'] ?? 'pkg_10';
 
     try {
       final apiClient = ref.read(apiClientProvider);
-      final res = await apiClient.dio.post('/api/providers/lead-packages/buy', data: {
-        'package_id': pkgId,
-        'amount': price,
+      final res = await apiClient.dio.post('/api/providers/lead-packages/purchase', data: {
+        'packageId': pkgId,
       });
 
       if (mounted && res.statusCode == 200 && res.data != null) {
         final orderData = res.data;
-        final orderId = orderData['order_id'] ?? orderData['razorpay_order_id'] ?? orderData['id'];
+
+        // Check for Free Access bypass
+        if (orderData['freeAccess'] == true) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text(orderData['message'] ?? 'Lead package activated successfully!'), backgroundColor: Colors.green),
+            );
+            Navigator.pop(context);
+          }
+          return;
+        }
+
+        final rzpOrder = orderData['razorpayOrder'] ?? orderData['order'];
+        final orderId = rzpOrder?['id'] ?? orderData['order_id'] ?? orderData['razorpay_order_id'];
+        final keyId = orderData['key_id'] ?? orderData['keyId'] ?? '';
 
         if (orderId == null || orderId.toString().isEmpty) {
-          _showFailureDialog('Invalid order response returned from server.');
+          _showFailureDialog(orderData['message'] ?? 'Invalid order response returned from server.');
           return;
         }
 
@@ -110,7 +124,7 @@ class _LeadPackageStoreScreenState extends ConsumerState<LeadPackageStoreScreen>
           backgroundColor: Colors.transparent,
           builder: (context) => PartnerRazorpayGatewayModalSheet(
             orderId: orderId.toString(),
-            keyId: orderData['key_id']?.toString() ?? '',
+            keyId: keyId.toString(),
             amount: price,
             title: title,
           ),
@@ -119,10 +133,10 @@ class _LeadPackageStoreScreenState extends ConsumerState<LeadPackageStoreScreen>
         if (paymentResult != null && paymentResult['success'] == true && mounted) {
           final paymentId = paymentResult['razorpay_payment_id'] ?? paymentResult['payment_id'];
           final signature = paymentResult['razorpay_signature'] ?? paymentResult['signature'];
-          await apiClient.dio.post('/api/providers/lead-packages/verify-payment', data: {
-            'order_id': orderId,
-            'payment_id': paymentId,
-            'signature': signature,
+          await apiClient.dio.post('/api/providers/lead-packages/verify', data: {
+            'razorpay_order_id': orderId,
+            'razorpay_payment_id': paymentId,
+            'razorpay_signature': signature,
           });
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -134,11 +148,15 @@ class _LeadPackageStoreScreenState extends ConsumerState<LeadPackageStoreScreen>
           _showFailureDialog(paymentResult?['message'] ?? 'Payment failed or cancelled.');
         }
       } else if (mounted) {
-        _showFailureDialog('Failed to create order on payment server.');
+        _showFailureDialog(res.data?['message'] ?? 'Failed to create order on payment server.');
       }
     } catch (e) {
       if (mounted) {
-        _showFailureDialog(e.toString().replaceAll('Exception: ', ''));
+        String msg = e.toString().replaceAll('Exception: ', '');
+        if (e is DioException && e.response?.data != null && e.response?.data['message'] != null) {
+          msg = e.response!.data['message'].toString();
+        }
+        _showFailureDialog(msg);
       }
     }
   }

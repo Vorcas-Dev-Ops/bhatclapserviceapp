@@ -5,6 +5,7 @@ import '../../providers/api_providers.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/provider_profile_provider.dart';
 import '../auth/login_screen.dart';
+import 'provider_delete_account_modal.dart';
 
 class PartnerHelpSupportScreen extends ConsumerStatefulWidget {
   const PartnerHelpSupportScreen({super.key});
@@ -416,7 +417,10 @@ class _PartnerHelpSupportScreenState extends ConsumerState<PartnerHelpSupportScr
                             title: const Text('Delete Partner Account', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.red)),
                             subtitle: const Text('Initiate 30-day cooling period for permanent erasure', style: TextStyle(fontSize: 11, color: Colors.grey)),
                             trailing: const Icon(Icons.chevron_right, color: Colors.red, size: 20),
-                            onTap: _showDeleteAccountDialog,
+                            onTap: () async {
+                              await ProviderDeleteAccountModal.show(context);
+                              ref.read(providerProfileProvider.notifier).fetchProfile();
+                            },
                           ),
                       ],
                     ),

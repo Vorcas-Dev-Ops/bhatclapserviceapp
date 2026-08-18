@@ -11,6 +11,7 @@ import 'package:partner_app/screens/profile/subscription_screen.dart';
 import 'package:partner_app/providers/notification_provider.dart';
 import 'package:partner_app/screens/leads/lead_marketplace_screen.dart';
 import 'package:partner_app/widgets/razorpay_gateway_modal.dart';
+import 'package:partner_app/screens/finance/cod_remittance_screen.dart';
 
 class MoneyScreen extends ConsumerStatefulWidget {
   const MoneyScreen({super.key});
@@ -93,17 +94,21 @@ class _MoneyScreenState extends ConsumerState<MoneyScreen> {
         continue;
       }
 
-      final double rawAmount = (s['net_payable_amount'] as num?)?.toDouble() ?? 
-                               (s['gross_amount'] as num?)?.toDouble() ?? 
-                               (s['amount'] as num?)?.toDouble() ?? 
-                               (s['payable_amount'] as num?)?.toDouble() ?? 0.0;
+      final paymentType = (s['payment_type'] ?? s['type'] ?? 'online').toString().toLowerCase();
+      final gross = (s['gross_amount'] as num?)?.toDouble() ?? 
+                    (s['amount'] as num?)?.toDouble() ?? 
+                    (s['payable_amount'] as num?)?.toDouble() ?? 
+                    (s['net_payable_amount'] as num?)?.toDouble() ?? 0.0;
       
-      if (rawAmount <= 0) continue;
+      if (gross <= 0) continue;
 
-      final gross = (s['gross_amount'] as num?)?.toDouble() ?? rawAmount;
       final comm = (s['commission_amount'] as num?)?.toDouble() ?? (gross * 0.10);
       final gst = (s['gst_on_commission'] as num?)?.toDouble() ?? (comm * 0.18);
-      final net = (s['net_payable_amount'] as num?)?.toDouble() ?? (gross - comm - gst);
+      final tds = (s['tds_amount'] as num?)?.toDouble() ?? 0.0;
+      final tcs = (s['tcs_amount'] as num?)?.toDouble() ?? 0.0;
+      final net = paymentType == 'online'
+          ? ((s['net_payable_amount'] as num?)?.toDouble() ?? (gross - comm - gst - tds - tcs))
+          : (gross - comm - gst - tds - tcs);
 
       final createdAtRaw = s['createdAt']?.toString() ?? s['created_at']?.toString() ?? s['timestamp']?.toString();
       final dt = createdAtRaw != null ? DateTime.tryParse(createdAtRaw) : null;
@@ -213,10 +218,19 @@ class _MoneyScreenState extends ConsumerState<MoneyScreen> {
   }
 
   void _showTransactionDetailsSheet(Map<String, dynamic> tx) {
-    final double amt = (tx['net_payable_amount'] as num?)?.toDouble() ?? (tx['gross_amount'] as num?)?.toDouble() ?? (tx['amount'] as num?)?.toDouble() ?? 0.0;
-    final gross = (tx['gross_amount'] as num?)?.toDouble();
-    final comm = (tx['commission_amount'] as num?)?.toDouble();
-    final type = (tx['payment_type'] ?? tx['type'] ?? 'online').toString();
+    final type = (tx['payment_type'] ?? tx['type'] ?? 'online').toString().toLowerCase();
+    final grossVal = (tx['gross_amount'] as num?)?.toDouble() ?? (tx['amount'] as num?)?.toDouble() ?? 0.0;
+    final commVal = (tx['commission_amount'] as num?)?.toDouble() ?? (grossVal * 0.10);
+    final gstVal = (tx['gst_on_commission'] as num?)?.toDouble() ?? (commVal * 0.18);
+    final tdsVal = (tx['tds_amount'] as num?)?.toDouble() ?? 0.0;
+    final tcsVal = (tx['tcs_amount'] as num?)?.toDouble() ?? 0.0;
+
+    final double amt = type == 'online'
+        ? ((tx['net_payable_amount'] as num?)?.toDouble() ?? (grossVal - commVal - gstVal - tdsVal - tcsVal))
+        : (grossVal - commVal - gstVal - tdsVal - tcsVal);
+
+    final gross = grossVal > 0 ? grossVal : null;
+    final comm = commVal > 0 ? commVal : null;
     final desc = tx['booking_id'] != null ? 'Booking #${tx['booking_id']}' : (tx['description'] ?? 'Job Settlement').toString();
     final status = (tx['status'] ?? 'paid').toString();
     final createdAtRaw = tx['createdAt']?.toString();
@@ -649,6 +663,79 @@ class _MoneyScreenState extends ConsumerState<MoneyScreen> {
     );
   }
 
+  Widget _buildCodRemittanceNavigationCard() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 8.0),
+      child: GestureDetector(
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const CodRemittanceScreen()),
+          ).then((_) => _fetchData());
+        },
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: const Color(0xFFEFF1FE)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.04),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              )
+            ],
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: const BoxDecoration(
+                  color: Color(0xFFFFF3E0),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.payments_outlined,
+                  color: Color(0xFFE65100),
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'COD Remittance & Ledger',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF1C1F3E),
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      _codDueBalance > 0
+                          ? '₹${_codDueBalance.toStringAsFixed(0)} pending cash remittance'
+                          : 'View cash collection history & limits',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: _codDueBalance > 0 ? const Color(0xFFE65100) : Colors.black54,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right, color: Colors.black26, size: 20),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   // Outstanding COD Dues Banner (If provider collected cash)
   Widget _buildCodDuesBanner() {
     if (_codDueBalance <= 0) return const SizedBox.shrink();
@@ -827,8 +914,15 @@ class _MoneyScreenState extends ConsumerState<MoneyScreen> {
                 if (tx is! Map) return const SizedBox.shrink();
 
                 final Map<String, dynamic> txMap = Map<String, dynamic>.from(tx);
-                final double amt = (txMap['net_payable_amount'] as num?)?.toDouble() ?? (txMap['gross_amount'] as num?)?.toDouble() ?? (txMap['amount'] as num?)?.toDouble() ?? 0.0;
-                final type = txMap['payment_type'] ?? txMap['type'] ?? 'online';
+                final type = (txMap['payment_type'] ?? txMap['type'] ?? 'online').toString().toLowerCase();
+                final gross = (txMap['gross_amount'] as num?)?.toDouble() ?? (txMap['amount'] as num?)?.toDouble() ?? 0.0;
+                final comm = (txMap['commission_amount'] as num?)?.toDouble() ?? (gross * 0.10);
+                final gst = (txMap['gst_on_commission'] as num?)?.toDouble() ?? (comm * 0.18);
+                final tds = (txMap['tds_amount'] as num?)?.toDouble() ?? 0.0;
+                final tcs = (txMap['tcs_amount'] as num?)?.toDouble() ?? 0.0;
+                final double amt = type == 'online'
+                    ? ((txMap['net_payable_amount'] as num?)?.toDouble() ?? (gross - comm - gst - tds - tcs))
+                    : (gross - comm - gst - tds - tcs);
                 final desc = txMap['booking_id'] != null ? 'Booking #${txMap['booking_id']}' : (txMap['description'] ?? 'Job Settlement').toString();
                 final status = (txMap['status'] ?? 'paid').toString();
                 
@@ -1187,6 +1281,7 @@ class _MoneyScreenState extends ConsumerState<MoneyScreen> {
                         _buildEarningsSummaryCard(),
                         _buildKpiRow(),
                         _buildBankAccountCard(profileState.profileData?['bank_details']),
+                        _buildCodRemittanceNavigationCard(),
                         _buildCodDuesBanner(),
                         _buildFinancialBreakdownCard(),
                         _buildTransfersSection(_settlements.isNotEmpty ? _settlements : walletState.transactions),

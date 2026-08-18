@@ -18,6 +18,7 @@ class _BankDetailsScreenState extends ConsumerState<BankDetailsScreen> {
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _accountNoController = TextEditingController();
   final TextEditingController _ifscController = TextEditingController();
+  final TextEditingController _upiIdController = TextEditingController();
 
   String? _fetchedBankName;
   String? _fetchedBranch;
@@ -35,6 +36,7 @@ class _BankDetailsScreenState extends ConsumerState<BankDetailsScreen> {
           _nameController.text = bankDetails['account_holder_name'] ?? bankDetails['accountHolderName'] ?? '';
           _accountNoController.text = bankDetails['account_number'] ?? bankDetails['accountNumber'] ?? '';
           _ifscController.text = bankDetails['ifsc_code'] ?? bankDetails['ifscCode'] ?? '';
+          _upiIdController.text = bankDetails['upi_id'] ?? bankDetails['upiId'] ?? bankDetails['vpa'] ?? '';
           _fetchedBankName = bankDetails['bank_name'] ?? bankDetails['bankName'];
         });
         if (_ifscController.text.length == 11) {
@@ -50,6 +52,7 @@ class _BankDetailsScreenState extends ConsumerState<BankDetailsScreen> {
     _nameController.dispose();
     _accountNoController.dispose();
     _ifscController.dispose();
+    _upiIdController.dispose();
     super.dispose();
   }
 
@@ -330,6 +333,12 @@ class _BankDetailsScreenState extends ConsumerState<BankDetailsScreen> {
                         textCapitalization: TextCapitalization.characters,
                       ),
                       _buildRazorpayVerifiedCard(),
+                      const SizedBox(height: 20),
+                      _buildTextField(
+                        label: 'UPI ID / VPA (Optional)',
+                        hint: 'e.g. mobile@upi or name@ybl',
+                        controller: _upiIdController,
+                      ),
                       const SizedBox(height: 24),
                     ],
                   ),
@@ -391,6 +400,7 @@ class _BankDetailsScreenState extends ConsumerState<BankDetailsScreen> {
                                     final name = _nameController.text.trim();
                                     final accountNo = _accountNoController.text.trim();
                                     final ifsc = _ifscController.text.trim().toUpperCase();
+                                    final upiId = _upiIdController.text.trim();
 
                                     if (name.isEmpty || accountNo.isEmpty || ifsc.isEmpty) {
                                       ScaffoldMessenger.of(context).showSnackBar(
@@ -413,6 +423,13 @@ class _BankDetailsScreenState extends ConsumerState<BankDetailsScreen> {
                                       return;
                                     }
 
+                                    if (upiId.isNotEmpty && !RegExp(r'^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z]{2,64}$').hasMatch(upiId)) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(content: Text('Invalid UPI ID format (e.g. name@upi)')),
+                                      );
+                                      return;
+                                    }
+
                                     final bankNameToSend = _fetchedBankName ?? 'Bank Verified via RazorpayX';
 
                                     final success = await ref
@@ -422,6 +439,7 @@ class _BankDetailsScreenState extends ConsumerState<BankDetailsScreen> {
                                           accountNumber: accountNo,
                                           ifscCode: ifsc,
                                           bankName: bankNameToSend,
+                                          upiId: upiId.isNotEmpty ? upiId : null,
                                         );
 
                                     if (success && mounted) {

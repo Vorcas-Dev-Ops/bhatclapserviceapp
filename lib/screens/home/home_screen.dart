@@ -14,7 +14,6 @@ import 'package:partner_app/screens/jobs/jobs_screen.dart';
 import 'package:partner_app/screens/jobs/job_details_screen.dart';
 import 'package:partner_app/screens/chat/partner_chat_screen.dart';
 import 'package:partner_app/screens/finance/money_screen.dart';
-import 'package:partner_app/screens/finance/add_credits_screen.dart';
 import 'package:partner_app/screens/profile/profile_screen.dart';
 import 'package:partner_app/screens/profile/subscription_screen.dart';
 import 'package:partner_app/screens/shop/starter_kit_screen.dart';
@@ -183,7 +182,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 onTap: () {
                   Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (context) => const AddCreditsScreen()),
+                    MaterialPageRoute(builder: (context) => const SubscriptionScreen()),
                   );
                 },
                 child: Container(
@@ -1070,11 +1069,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         letterSpacing: 0.5,
                       ),
                     ),
-                    Text(
-                      time,
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: Colors.black38,
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Text(
+                        time,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: Colors.black38,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: 1,
                       ),
                     ),
                   ],
@@ -1171,7 +1175,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 final address = booking['address_id'] ?? {};
                 final addressLine = address['address_line'] ?? 'Address';
                 final city = address['city'] ?? 'City';
-                final time = '${booking['scheduled_at'] ?? 'Today'} • ${booking['booking_time'] ?? 'Now'}';
+                final rawSchedDate = (booking['scheduled_at'] ?? '').toString();
+                final cleanSchedDate = rawSchedDate.contains('T') ? rawSchedDate.split('T')[0] : (rawSchedDate.contains(' ') ? rawSchedDate.split(' ')[0] : rawSchedDate);
+                final dateDisplay = cleanSchedDate.isNotEmpty ? cleanSchedDate : 'Today';
+                final time = '$dateDisplay • ${booking['booking_time'] ?? 'Now'}';
 
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 12.0),
@@ -1652,36 +1659,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             mainAxisSpacing: 16,
             childAspectRatio: 1.4,
             children: [
-              _buildQuickActionCard(Icons.calendar_today_outlined, 'Availability', () async {
-                final currentContext = context;
-                final success = await ref.read(jobDispatchProvider.notifier).toggleAvailability();
-                if (!currentContext.mounted) return;
-                final dispatchState = ref.read(jobDispatchProvider);
-                if (success) {
-                  final isOnline = dispatchState.isOnline;
-                  showTopPillToast(
-                    currentContext,
-                    isOnline ? 'You are online!' : 'You are offline',
-                    isError: false,
-                    isOffline: !isOnline,
-                  );
-                } else {
-                  final err = dispatchState.error;
-                  showTopPillToast(
-                    currentContext,
-                    err ?? 'Failed to update availability status.',
-                    isError: true,
-                  );
-                }
-              }),
               _buildQuickActionCard(Icons.account_balance_wallet_outlined, 'Add Credits', () {
                 Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (context) => const AddCreditsScreen()),
+                  MaterialPageRoute(builder: (context) => const SubscriptionScreen()),
                 );
-              }),
-              _buildQuickActionCard(Icons.description_outlined, 'Documents', () {
-                showTopPillToast(context, 'Documents feature coming soon!');
               }),
               _buildQuickActionCard(Icons.school_outlined, 'Training', () {
                 showTopPillToast(context, 'Training modules coming soon!');

@@ -106,6 +106,7 @@ class ProviderProfileNotifier extends StateNotifier<ProfileState> {
     required String accountNumber,
     required String ifscCode,
     required String bankName,
+    String? upiId,
   }) async {
     state = state.copyWith(status: ProfileStatus.loading);
     try {
@@ -116,6 +117,8 @@ class ProviderProfileNotifier extends StateNotifier<ProfileState> {
           'accountNumber': accountNumber,
           'ifscCode': ifscCode,
           'bankName': bankName,
+          if (upiId != null && upiId.isNotEmpty) 'upiId': upiId,
+          if (upiId != null && upiId.isNotEmpty) 'vpa': upiId,
         },
       );
       if (response.statusCode == 200) {
