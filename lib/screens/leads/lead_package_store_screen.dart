@@ -37,11 +37,11 @@ class _LeadPackageStoreScreenState extends ConsumerState<LeadPackageStoreScreen>
       if (mounted) {
         setState(() {
           _isLoading = false;
-          // Fallback pre-set packages if catalog service is empty
           _packages = [
-            {'id': 'pkg_starter', 'title': 'Starter Lead Pass', 'credits': 10, 'price': 499},
-            {'id': 'pkg_pro', 'title': 'Pro Lead Pass', 'credits': 25, 'price': 999},
-            {'id': 'pkg_enterprise', 'title': 'Enterprise Power Pass', 'credits': 60, 'price': 1999},
+            {'id': 'pkg_299', 'name': 'Starter', 'title': 'Starter', 'price': 299, 'leads': 25, 'bonusLeads': 0, 'validityDays': 30, 'hasPriorityDispatch': false},
+            {'id': 'pkg_499', 'name': 'Basic', 'title': 'Basic', 'price': 499, 'leads': 60, 'bonusLeads': 10, 'validityDays': 30, 'hasPriorityDispatch': false},
+            {'id': 'pkg_999', 'name': 'Silver', 'title': 'Silver', 'price': 999, 'leads': 120, 'bonusLeads': 20, 'validityDays': 60, 'hasPriorityDispatch': true},
+            {'id': 'pkg_1999', 'name': 'Gold', 'title': 'Gold', 'price': 1999, 'leads': 300, 'bonusLeads': 50, 'validityDays': 90, 'hasPriorityDispatch': true},
           ];
         });
       }
@@ -184,13 +184,21 @@ class _LeadPackageStoreScreenState extends ConsumerState<LeadPackageStoreScreen>
               itemCount: _packages.length,
               itemBuilder: (context, index) {
                 final pkg = _packages[index];
-                final title = pkg['title'] ?? 'Lead Package';
-                final credits = pkg['credits'] ?? 10;
-                final price = pkg['price'] ?? 499;
+                final title = pkg['name'] ?? pkg['title'] ?? 'Lead Package';
+                final baseLeads = pkg['leads'] ?? pkg['baseLeads'] ?? pkg['credits'] ?? 10;
+                final bonusLeads = pkg['bonusLeads'] ?? 0;
+                final totalLeads = baseLeads + bonusLeads;
+                final validityDays = pkg['validityDays'] ?? 30;
+                final price = pkg['price'] ?? 299;
+                final hasPriority = pkg['hasPriorityDispatch'] == true;
+
+                final leadsSubtext = bonusLeads > 0
+                    ? '$totalLeads Job Lead Credits ($baseLeads Base + $bonusLeads Bonus)'
+                    : '$totalLeads Job Lead Credits';
 
                 return Container(
                   margin: const EdgeInsets.only(bottom: 16),
-                  padding: const EdgeInsets.all(20),
+                  padding: const EdgeInsets.all(18),
                   decoration: BoxDecoration(
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(16),
@@ -205,24 +213,53 @@ class _LeadPackageStoreScreenState extends ConsumerState<LeadPackageStoreScreen>
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            title,
-                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF16155D)),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            '$credits Job Lead Credits',
-                            style: const TextStyle(fontSize: 13, color: Colors.black54),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            '₹$price',
-                            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.green),
-                          ),
-                        ],
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Text(
+                                  title,
+                                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF16155D)),
+                                ),
+                                if (hasPriority) ...[
+                                  const SizedBox(width: 8),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: Colors.amber.shade100,
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: Text(
+                                      '⚡ PRIORITY',
+                                      style: TextStyle(
+                                        fontSize: 9,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.amber.shade900,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              leadsSubtext,
+                              style: const TextStyle(fontSize: 12, color: Colors.black54),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Valid for $validityDays days',
+                              style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              '₹$price',
+                              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.green),
+                            ),
+                          ],
+                        ),
                       ),
                       ElevatedButton(
                         style: ElevatedButton.styleFrom(

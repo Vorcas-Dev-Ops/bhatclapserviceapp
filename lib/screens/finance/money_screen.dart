@@ -376,16 +376,6 @@ class _MoneyScreenState extends ConsumerState<MoneyScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: const [
               Text(
-                'BharatClap',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w900,
-                  color: Color(0xFF16155D),
-                  letterSpacing: -0.5,
-                ),
-              ),
-              SizedBox(height: 2),
-              Text(
                 'Money',
                 style: TextStyle(
                   fontSize: 26,
@@ -403,7 +393,7 @@ class _MoneyScreenState extends ConsumerState<MoneyScreen> {
                 onTap: () {
                   Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (context) => const CreditsScreen()),
+                    MaterialPageRoute(builder: (context) => const LeadMarketplaceScreen()),
                   );
                 },
                 child: Container(
@@ -1028,7 +1018,7 @@ class _MoneyScreenState extends ConsumerState<MoneyScreen> {
               onTap: () {
                 Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (context) => const CreditsScreen()),
+                  MaterialPageRoute(builder: (context) => const LeadMarketplaceScreen()),
                 );
               },
               child: Container(
@@ -1099,7 +1089,7 @@ class _MoneyScreenState extends ConsumerState<MoneyScreen> {
               onTap: () {
                 Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (context) => const LeadMarketplaceScreen()),
+                  MaterialPageRoute(builder: (context) => const SubscriptionScreen()),
                 );
               },
               child: Container(

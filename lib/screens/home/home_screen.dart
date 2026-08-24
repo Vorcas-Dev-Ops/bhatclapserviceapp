@@ -16,6 +16,7 @@ import 'package:partner_app/screens/chat/partner_chat_screen.dart';
 import 'package:partner_app/screens/finance/money_screen.dart';
 import 'package:partner_app/screens/profile/profile_screen.dart';
 import 'package:partner_app/screens/profile/subscription_screen.dart';
+import 'package:partner_app/screens/leads/lead_marketplace_screen.dart';
 import 'package:partner_app/screens/shop/starter_kit_screen.dart';
 import 'package:partner_app/screens/profile/referral_screen.dart';
 import 'package:partner_app/services/notification_service.dart';
@@ -162,16 +163,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'BharatClap',
-            style: TextStyle(
-              fontSize: 22,
-              fontWeight: FontWeight.w900,
-              color: Color(0xFF16155D),
-              letterSpacing: -0.5,
-            ),
-          ),
-          const SizedBox(height: 10),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -182,7 +173,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 onTap: () {
                   Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (context) => const SubscriptionScreen()),
+                    MaterialPageRoute(builder: (context) => const LeadMarketplaceScreen()),
                   );
                 },
                 child: Container(

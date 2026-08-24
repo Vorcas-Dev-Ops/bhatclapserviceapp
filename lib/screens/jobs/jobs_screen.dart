@@ -106,16 +106,6 @@ class _JobsScreenState extends ConsumerState<JobsScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: const [
               Text(
-                'BharatClap',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w900,
-                  color: Color(0xFF16155D),
-                  letterSpacing: -0.5,
-                ),
-              ),
-              SizedBox(height: 2),
-              Text(
                 'Jobs',
                 style: TextStyle(
                   fontSize: 26,

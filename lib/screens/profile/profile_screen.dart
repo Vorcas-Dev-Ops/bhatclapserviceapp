@@ -11,6 +11,7 @@ import 'package:partner_app/screens/profile/profile_identity_verification_screen
 import 'package:partner_app/screens/jobs/calendar_screen.dart';
 import 'package:partner_app/screens/jobs/job_history_screen.dart';
 import 'package:partner_app/screens/finance/credits_screen.dart';
+import 'package:partner_app/screens/leads/lead_marketplace_screen.dart';
 import 'package:partner_app/screens/profile/performance_screen.dart';
 import 'package:partner_app/screens/shop/shop_screen.dart';
 import 'package:partner_app/screens/profile/subscription_screen.dart';
@@ -103,16 +104,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: const [
-          Text(
-            'BharatClap',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w900,
-              color: Color(0xFF16155D),
-              letterSpacing: -0.5,
-            ),
-          ),
-          SizedBox(height: 2),
           Text(
             'My Profile',
             style: TextStyle(
@@ -415,7 +406,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (context) => const CreditsScreen(),
+                      builder: (context) => const LeadMarketplaceScreen(),
                     ),
                   );
                 },

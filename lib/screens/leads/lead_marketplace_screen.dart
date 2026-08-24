@@ -4,7 +4,7 @@ import 'package:dio/dio.dart';
 import 'package:partner_app/providers/api_providers.dart';
 import 'package:partner_app/providers/auth_provider.dart';
 import 'package:partner_app/providers/provider_profile_provider.dart';
-import 'lead_package_store_screen.dart';
+import '../../widgets/razorpay_gateway_modal.dart';
 
 class LeadMarketplaceScreen extends ConsumerStatefulWidget {
   const LeadMarketplaceScreen({super.key});
@@ -15,6 +15,7 @@ class LeadMarketplaceScreen extends ConsumerStatefulWidget {
 
 class _LeadMarketplaceScreenState extends ConsumerState<LeadMarketplaceScreen> {
   List<dynamic> _leads = [];
+  List<dynamic> _packages = [];
   bool _isLoading = true;
   int _walletCredits = 0;
   String? _errorMessage;
@@ -23,6 +24,35 @@ class _LeadMarketplaceScreenState extends ConsumerState<LeadMarketplaceScreen> {
   void initState() {
     super.initState();
     _fetchLeadsAndCredits();
+    _fetchPackages();
+  }
+
+  Future<void> _fetchPackages() async {
+    try {
+      final apiClient = ref.read(apiClientProvider);
+      final res = await apiClient.dio.get('/api/providers/lead-packages');
+      if (mounted && res.statusCode == 200) {
+        final data = res.data;
+        final list = (data is Map && data['data'] != null) ? data['data'] : (data is List ? data : []);
+        if (list is List && list.isNotEmpty) {
+          setState(() {
+            _packages = list;
+          });
+          return;
+        }
+      }
+    } catch (_) {}
+
+    if (mounted) {
+      setState(() {
+        _packages = [
+          {'id': 'pkg_299', 'name': 'Starter', 'title': 'Starter', 'price': 299, 'leads': 25, 'bonusLeads': 0, 'validityDays': 30, 'hasPriorityDispatch': false},
+          {'id': 'pkg_499', 'name': 'Basic', 'title': 'Basic', 'price': 499, 'leads': 60, 'bonusLeads': 10, 'validityDays': 30, 'hasPriorityDispatch': false},
+          {'id': 'pkg_999', 'name': 'Silver', 'title': 'Silver', 'price': 999, 'leads': 120, 'bonusLeads': 20, 'validityDays': 60, 'hasPriorityDispatch': true},
+          {'id': 'pkg_1999', 'name': 'Gold', 'title': 'Gold', 'price': 1999, 'leads': 300, 'bonusLeads': 50, 'validityDays': 90, 'hasPriorityDispatch': true},
+        ];
+      });
+    }
   }
 
   Future<void> _fetchLeadsAndCredits() async {
@@ -148,22 +178,124 @@ class _LeadMarketplaceScreenState extends ConsumerState<LeadMarketplaceScreen> {
     }
   }
 
+  void _showFailureDialog(String reason) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: const [
+            Icon(Icons.error_outline, color: Colors.red, size: 28),
+            SizedBox(width: 8),
+            Text(
+              'Payment Failed',
+              style: TextStyle(fontWeight: FontWeight.bold, color: Colors.redAccent, fontSize: 18),
+            ),
+          ],
+        ),
+        content: Text(
+          reason.isNotEmpty ? reason : 'The payment transaction could not be completed. Please try again.',
+          style: const TextStyle(fontSize: 14, color: Colors.black87),
+        ),
+        actions: [
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF16155D),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _buyPackage(Map<String, dynamic> pkg) async {
+    final title = pkg['name'] ?? pkg['title'] ?? 'Lead Package';
+    final price = (pkg['price'] ?? 299).toDouble();
+    final pkgId = pkg['_id'] ?? pkg['id'] ?? 'pkg_10';
+
+    try {
+      final apiClient = ref.read(apiClientProvider);
+      final res = await apiClient.dio.post('/api/providers/lead-packages/purchase', data: {
+        'packageId': pkgId,
+      });
+
+      if (mounted && res.statusCode == 200 && res.data != null) {
+        final orderData = res.data;
+
+        if (orderData['freeAccess'] == true) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text(orderData['message'] ?? 'Lead package activated successfully!'), backgroundColor: Colors.green),
+            );
+            _fetchLeadsAndCredits();
+          }
+          return;
+        }
+
+        final rzpOrder = orderData['razorpayOrder'] ?? orderData['order'];
+        final orderId = rzpOrder?['id'] ?? orderData['order_id'] ?? orderData['razorpay_order_id'];
+        final keyId = orderData['key_id'] ?? orderData['keyId'] ?? '';
+
+        if (orderId == null || orderId.toString().isEmpty) {
+          _showFailureDialog(orderData['message'] ?? 'Invalid order response returned from server.');
+          return;
+        }
+
+        final paymentResult = await showModalBottomSheet<Map<String, dynamic>>(
+          context: context,
+          isScrollControlled: true,
+          isDismissible: false,
+          enableDrag: false,
+          backgroundColor: Colors.transparent,
+          builder: (context) => PartnerRazorpayGatewayModalSheet(
+            orderId: orderId.toString(),
+            keyId: keyId.toString(),
+            amount: price,
+            title: title,
+          ),
+        );
+
+        if (paymentResult != null && paymentResult['success'] == true && mounted) {
+          final paymentId = paymentResult['razorpay_payment_id'] ?? paymentResult['payment_id'];
+          final signature = paymentResult['razorpay_signature'] ?? paymentResult['signature'];
+          await apiClient.dio.post('/api/providers/lead-packages/verify', data: {
+            'razorpay_order_id': orderId,
+            'razorpay_payment_id': paymentId,
+            'razorpay_signature': signature,
+          });
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Lead credits added to wallet successfully!'), backgroundColor: Colors.green),
+            );
+            _fetchLeadsAndCredits();
+          }
+        } else if (mounted) {
+          _showFailureDialog(paymentResult?['message'] ?? 'Payment failed or cancelled.');
+        }
+      } else if (mounted) {
+        _showFailureDialog(res.data?['message'] ?? 'Failed to create order on payment server.');
+      }
+    } catch (e) {
+      if (mounted) {
+        String msg = e.toString().replaceAll('Exception: ', '');
+        if (e is DioException && e.response?.data != null && e.response?.data['message'] != null) {
+          msg = e.response!.data['message'].toString();
+        }
+        _showFailureDialog(msg);
+      }
+    }
+  }
+
   Future<void> _claimLead(String leadId, int cost) async {
     if (_walletCredits < cost) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Insufficient lead credits ($cost required, you have $_walletCredits). Please buy lead credits!'),
+          content: Text('Insufficient lead credits ($cost required, you have $_walletCredits). Please buy lead credits below!'),
           backgroundColor: Colors.orange.shade900,
-          action: SnackBarAction(
-            label: 'BUY CREDITS',
-            textColor: Colors.white,
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const LeadPackageStoreScreen()),
-              ).then((_) => _fetchLeadsAndCredits());
-            },
-          ),
         ),
       );
       return;
@@ -208,6 +340,10 @@ class _LeadMarketplaceScreenState extends ConsumerState<LeadMarketplaceScreen> {
       appBar: AppBar(
         backgroundColor: Colors.white,
         elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios_new, size: 20, color: Colors.black87),
+          onPressed: () => Navigator.pop(context),
+        ),
         title: const Text(
           'Lead Marketplace',
           style: TextStyle(color: Color(0xFF16155D), fontWeight: FontWeight.bold),
@@ -215,7 +351,10 @@ class _LeadMarketplaceScreenState extends ConsumerState<LeadMarketplaceScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh, color: Color(0xFF16155D)),
-            onPressed: _fetchLeadsAndCredits,
+            onPressed: () {
+              _fetchLeadsAndCredits();
+              _fetchPackages();
+            },
           ),
         ],
       ),
@@ -223,8 +362,9 @@ class _LeadMarketplaceScreenState extends ConsumerState<LeadMarketplaceScreen> {
         children: [
           // Wallet Credits Banner
           Container(
-            padding: const EdgeInsets.all(16),
-            margin: const EdgeInsets.all(16),
+            width: double.infinity,
+            padding: const EdgeInsets.all(20),
+            margin: const EdgeInsets.fromLTRB(16, 16, 16, 8),
             decoration: BoxDecoration(
               gradient: const LinearGradient(
                 colors: [Color(0xFF16155D), Color(0xFF2E2D8E)],
@@ -234,74 +374,60 @@ class _LeadMarketplaceScreenState extends ConsumerState<LeadMarketplaceScreen> {
               borderRadius: BorderRadius.circular(16),
               boxShadow: [
                 BoxShadow(
-                  color: const Color(0xFF16155D).withOpacity(0.25),
+                  color: const Color(0xFF16155D).withValues(alpha: 0.25),
                   blurRadius: 8,
                   offset: const Offset(0, 4),
                 ),
               ],
             ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Available Lead Credits',
-                      style: TextStyle(color: Colors.white70, fontSize: 12),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '$_walletCredits Credits',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 22,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
+                const Text(
+                  'Available Lead Credits',
+                  style: TextStyle(color: Colors.white70, fontSize: 13),
                 ),
-                ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.amber.shade600,
-                    foregroundColor: Colors.black,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                const SizedBox(height: 4),
+                Text(
+                  '$_walletCredits Credits',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 26,
+                    fontWeight: FontWeight.bold,
                   ),
-                  icon: const Icon(Icons.add_shopping_cart, size: 16),
-                  label: const Text('Buy Credits', style: TextStyle(fontWeight: FontWeight.bold)),
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (context) => const LeadPackageStoreScreen()),
-                    ).then((_) => _fetchLeadsAndCredits());
-                  },
                 ),
               ],
             ),
           ),
 
-          // Leads List
+          // Main Area (Lead Credit Packages & Job Leads)
           Expanded(
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator())
-                : _errorMessage != null
-                    ? Center(
-                        child: Text(
-                          _errorMessage!,
-                          style: const TextStyle(color: Colors.redAccent),
-                        ),
-                      )
-                    : _leads.isEmpty
-                        ? const Center(
-                            child: Text(
-                              'No job leads available right now. Check back soon!',
-                              style: TextStyle(color: Colors.black45),
+                : RefreshIndicator(
+                    onRefresh: () async {
+                      await _fetchLeadsAndCredits();
+                      await _fetchPackages();
+                    },
+                    child: SingleChildScrollView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (_leads.isNotEmpty) ...[
+                            const Text(
+                              'Available Job Leads',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF16155D),
+                              ),
                             ),
-                          )
-                        : RefreshIndicator(
-                            onRefresh: _fetchLeadsAndCredits,
-                            child: ListView.builder(
-                              padding: const EdgeInsets.symmetric(horizontal: 16),
+                            const SizedBox(height: 12),
+                            ListView.builder(
+                              shrinkWrap: true,
+                              physics: const NeverScrollableScrollPhysics(),
                               itemCount: _leads.length,
                               itemBuilder: (context, index) {
                                 final lead = _leads[index];
@@ -379,7 +505,131 @@ class _LeadMarketplaceScreenState extends ConsumerState<LeadMarketplaceScreen> {
                                 );
                               },
                             ),
+                            const SizedBox(height: 24),
+                          ],
+
+                          // Lead Credit Packages Section (Image 1 Cards)
+                          const Text(
+                            'Lead Credit Packages',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF16155D),
+                            ),
                           ),
+                          const SizedBox(height: 12),
+                          ListView.builder(
+                            shrinkWrap: true,
+                            physics: const NeverScrollableScrollPhysics(),
+                            itemCount: _packages.length,
+                            itemBuilder: (context, index) {
+                              final pkg = _packages[index];
+                              final title = pkg['name'] ?? pkg['title'] ?? 'Lead Package';
+                              final baseLeads = pkg['leads'] ?? pkg['baseLeads'] ?? pkg['credits'] ?? 10;
+                              final bonusLeads = pkg['bonusLeads'] ?? 0;
+                              final totalLeads = baseLeads + bonusLeads;
+                              final validityDays = pkg['validityDays'] ?? 30;
+                              final price = pkg['price'] ?? 299;
+                              final hasPriority = pkg['hasPriorityDispatch'] == true;
+
+                              final leadsSubtext = bonusLeads > 0
+                                  ? '$totalLeads Job Lead Credits ($baseLeads Base + $bonusLeads Bonus)'
+                                  : '$totalLeads Job Lead Credits';
+
+                              return Container(
+                                margin: const EdgeInsets.only(bottom: 14),
+                                padding: const EdgeInsets.all(18),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(16),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withValues(alpha: 0.04),
+                                      blurRadius: 8,
+                                      offset: const Offset(0, 3),
+                                    ),
+                                  ],
+                                ),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Row(
+                                            children: [
+                                              Text(
+                                                title,
+                                                style: const TextStyle(
+                                                  fontSize: 16,
+                                                  fontWeight: FontWeight.bold,
+                                                  color: Color(0xFF16155D),
+                                                ),
+                                              ),
+                                              if (hasPriority) ...[
+                                                const SizedBox(width: 8),
+                                                Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                  decoration: BoxDecoration(
+                                                    color: Colors.amber.shade100,
+                                                    borderRadius: BorderRadius.circular(6),
+                                                  ),
+                                                  child: Text(
+                                                    '⚡ PRIORITY',
+                                                    style: TextStyle(
+                                                      fontSize: 9,
+                                                      fontWeight: FontWeight.bold,
+                                                      color: Colors.amber.shade900,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
+                                            ],
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            leadsSubtext,
+                                            style: const TextStyle(fontSize: 12, color: Colors.black54),
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            'Valid for $validityDays days',
+                                            style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                                          ),
+                                          const SizedBox(height: 8),
+                                          Text(
+                                            '₹$price',
+                                            style: const TextStyle(
+                                              fontSize: 20,
+                                              fontWeight: FontWeight.bold,
+                                              color: Colors.green,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    ElevatedButton(
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: const Color(0xFF16155D),
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                                      ),
+                                      onPressed: () => _buyPackage(pkg),
+                                      child: const Text(
+                                        'Buy Now',
+                                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
           ),
         ],
       ),
