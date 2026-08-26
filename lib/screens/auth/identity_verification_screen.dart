@@ -879,6 +879,7 @@ class _IdentityVerificationScreenState extends ConsumerState<IdentityVerificatio
                                           verificationDocs: {
                                             'id_proof_url': base64Doc,
                                           },
+                                          onboardingStep: 3,
                                         );
 
                                     if ((success || isAlreadyVerified) && mounted) {

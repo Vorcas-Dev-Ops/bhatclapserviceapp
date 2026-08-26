@@ -188,6 +188,7 @@ class _SelectSubCategoriesScreenState extends ConsumerState<SelectSubCategoriesS
                                     );
 
                                 if (success && mounted) {
+                                  await ref.read(providerProfileProvider.notifier).updateProfile(onboardingStep: 1);
                                   Navigator.push(
                                     context,
                                     MaterialPageRoute(

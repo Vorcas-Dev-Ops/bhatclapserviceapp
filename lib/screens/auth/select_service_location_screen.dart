@@ -353,7 +353,7 @@ class _SelectServiceLocationScreenState extends ConsumerState<SelectServiceLocat
                   const SizedBox(width: 12),
                   // Continue Button
                   Expanded(
-                    child: SizedBox(
+                      child: SizedBox(
                       height: 54,
                       child: ElevatedButton(
                         onPressed: isSaving || _selectedLocationIds.isEmpty
@@ -363,6 +363,7 @@ class _SelectServiceLocationScreenState extends ConsumerState<SelectServiceLocat
                                     .read(providerProfileProvider.notifier)
                                     .updateProfile(
                                       serviceLocations: _selectedLocationIds.toList(),
+                                      onboardingStep: 2,
                                     );
 
                                 if (success && mounted) {

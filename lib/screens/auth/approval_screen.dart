@@ -179,36 +179,34 @@ class _ApprovalScreenState extends ConsumerState<ApprovalScreen> {
                   ),
                 ),
               ] else ...[
-                SizedBox(
-                  width: double.infinity,
-                  height: 54,
-                  child: OutlinedButton(
-                    onPressed: isLoading
-                        ? null
-                        : () {
-                            ref.read(providerProfileProvider.notifier).fetchProfile();
-                            _showTopPillPopup(context, "Your Documents are under review");
-                          },
-                    style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: Color(0xFF16155D), width: 1.5),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(20),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF5F6FA),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Stack(
+                    children: [
+                      Positioned(
+                        top: 14,
+                        left: 40,
+                        right: 40,
+                        child: Row(
+                          children: [
+                            _buildLine(true),
+                            _buildLine(false),
+                          ],
+                        ),
                       ),
-                    ),
-                    child: isLoading
-                        ? const SizedBox(
-                            height: 20,
-                            width: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF16155D)),
-                          )
-                        : const Text(
-                            'Check Status',
-                            style: TextStyle(
-                              fontSize: 16,
-                              color: Color(0xFF16155D),
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          _buildStep('Application\nSubmitted', true),
+                          _buildStep('Under\nReview', true),
+                          _buildStep('Approved', false),
+                        ],
+                      ),
+                    ],
                   ),
                 ),
               ],
@@ -239,6 +237,44 @@ class _ApprovalScreenState extends ConsumerState<ApprovalScreen> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildStep(String text, bool active) {
+    return SizedBox(
+      width: 80,
+      child: Column(
+        children: [
+          Container(
+            width: 28,
+            height: 28,
+            decoration: BoxDecoration(
+              color: active ? const Color(0xFF16155D) : Colors.grey.shade300,
+              shape: BoxShape.circle,
+            ),
+            child: active ? const Icon(Icons.check, size: 16, color: Colors.white) : null,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            text,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 12,
+              color: active ? const Color(0xFF16155D) : Colors.black38,
+              fontWeight: active ? FontWeight.w600 : FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLine(bool active) {
+    return Expanded(
+      child: Container(
+        height: 2,
+        color: active ? const Color(0xFF16155D) : Colors.grey.shade300,
       ),
     );
   }

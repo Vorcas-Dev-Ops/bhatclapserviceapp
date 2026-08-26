@@ -449,12 +449,19 @@ class _BankDetailsScreenState extends ConsumerState<BankDetailsScreen> {
                                         );
                                         Navigator.pop(context);
                                       } else {
-                                        Navigator.push(
-                                          context,
-                                          MaterialPageRoute(
-                                            builder: (context) => const ApprovalScreen(),
-                                          ),
-                                        );
+                                        final submitSuccess = await ref.read(providerProfileProvider.notifier).submitForReview();
+                                        if (submitSuccess && mounted) {
+                                          Navigator.push(
+                                            context,
+                                            MaterialPageRoute(
+                                              builder: (context) => const ApprovalScreen(),
+                                            ),
+                                          );
+                                        } else if (mounted) {
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            const SnackBar(content: Text('Failed to submit application. Please try again.')),
+                                          );
+                                        }
                                       }
                                     } else if (mounted) {
                                       ScaffoldMessenger.of(context).showSnackBar(

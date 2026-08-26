@@ -70,6 +70,8 @@ class ProviderProfileNotifier extends StateNotifier<ProfileState> {
     Map<String, dynamic>? bankDetails,
     Map<String, dynamic>? verificationDocs,
     List<String>? serviceLocations,
+    int? onboardingStep,
+    Map<String, dynamic>? onboardingDraft,
   }) async {
     state = state.copyWith(status: ProfileStatus.loading);
     try {
@@ -79,6 +81,8 @@ class ProviderProfileNotifier extends StateNotifier<ProfileState> {
       if (bankDetails != null) data['bank_details'] = bankDetails;
       if (verificationDocs != null) data['verification_docs'] = verificationDocs;
       if (serviceLocations != null) data['service_locations'] = serviceLocations;
+      if (onboardingStep != null) data['onboarding_step'] = onboardingStep;
+      if (onboardingDraft != null) data['onboarding_draft'] = onboardingDraft;
 
       final response = await _apiClient.dio.put('/api/providers/me', data: data);
       if (response.statusCode == 200) {
@@ -96,6 +100,26 @@ class ProviderProfileNotifier extends StateNotifier<ProfileState> {
       state = state.copyWith(
         status: ProfileStatus.error,
         errorMessage: e.response?.data['message'] ?? 'Failed to update profile',
+      );
+      return false;
+    }
+  }
+
+  Future<bool> submitForReview() async {
+    state = state.copyWith(status: ProfileStatus.loading);
+    try {
+      final response = await _apiClient.dio.post('/api/providers/me/submit');
+      if (response.statusCode == 200) {
+        // Fetch fresh profile state to reflect UNDER_REVIEW
+        await fetchProfile();
+        return true;
+      }
+      return false;
+    } on DioException catch (e) {
+      print('=== ProviderProfileNotifier: submitForReview DioException: $e ===');
+      state = state.copyWith(
+        status: ProfileStatus.error,
+        errorMessage: e.response?.data['message'] ?? 'Failed to submit application',
       );
       return false;
     }

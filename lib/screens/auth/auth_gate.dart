@@ -139,37 +139,27 @@ class _InitialProfileCheckGateState extends ConsumerState<InitialProfileCheckGat
       );
     }
 
-    // 1. KYC Approval Check
-    final kycStatus = profile['kyc_status'] ?? 'pending';
-    if (kycStatus == 'verified') {
+    final onboardingStatus = (profile['onboarding_status'] ?? 'DRAFT').toString().toUpperCase();
+    final onboardingStep = (profile['onboarding_step'] ?? 0) as int;
+
+    if (onboardingStatus == 'APPROVED') {
       return const HomeScreen();
+    } else if (onboardingStatus == 'UNDER_REVIEW' || onboardingStatus == 'ACTION_REQUIRED') {
+      return const ApprovalScreen();
+    } else {
+      // DRAFT or any other status
+      switch (onboardingStep) {
+        case 0:
+          return const ServicesYouOfferScreen();
+        case 1:
+          return const SelectServiceLocationScreen();
+        case 2:
+          return const IdentityVerificationScreen();
+        case 3:
+          return const BankDetailsScreen();
+        default:
+          return const ServicesYouOfferScreen();
+      }
     }
-
-    // 2. Select Services Completeness Check
-    final services = profile['services'] as List?;
-    if (services == null || services.isEmpty) {
-      return const ServicesYouOfferScreen();
-    }
-
-    // 3. Work Locations Completeness Check
-    final serviceLocations = profile['service_locations'] as List?;
-    if (serviceLocations == null || serviceLocations.isEmpty) {
-      return const SelectServiceLocationScreen();
-    }
-
-    // 4. Identity Verification (Aadhaar / ID Proof) Completeness Check
-    final aadharLast4 = profile['aadhar_last4'];
-    final idProofUrl = profile['verification_docs']?['id_proof_url'];
-    if (aadharLast4 == null || idProofUrl == null || idProofUrl.toString().isEmpty) {
-      return const IdentityVerificationScreen();
-    }
-
-    // 5. Bank Account Details Completeness Check
-    final bankDetails = profile['bank_details'];
-    if (bankDetails == null || bankDetails['bank_name'] == null || bankDetails['bank_name'].toString().isEmpty) {
-      return const BankDetailsScreen();
-    }
-
-    return const ApprovalScreen();
   }
 }
